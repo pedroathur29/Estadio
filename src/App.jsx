@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useLayoutEffect } from 'react';
 import Home from './pages/Home';
 import StadiumPage from './pages/StadiumPage';
 import SeatsPage from './pages/SeatsPage';
@@ -25,8 +25,11 @@ export default function App() {
     if (current !== view) go(current);
   }, [current, view, go]);
 
-  useEffect(() => {
+  // start every screen at the top, after the new screen is in the DOM (the store's scroll runs
+  // before React renders, so the browser could still restore/keep the previous position)
+  useLayoutEffect(() => {
     document.body.classList.toggle('no-scroll', current === 'stadium');
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
   }, [current]);
 
   return (
