@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ExplorerCanvas } from '../three/StadiumCanvas';
+import ErrorBoundary from '../components/ErrorBoundary';
+import { webglAvailable } from '../lib/webgl';
 import Crest from '../components/Crest';
 import MiniMap from '../components/MiniMap';
 import { Logo, Steps } from '../components/Chrome';
@@ -81,9 +83,16 @@ function SectorList({ matchId, onPick }) {
   );
 }
 
-function FieldView({ sector }) {
+function FieldView({ sector, no3d }) {
   const shot = useStore((s) => s.viewShots[sector.id]);
   const setCameraMode = useStore((s) => s.setCameraMode);
+  if (no3d && !shot) {
+    return (
+      <div className="fieldview">
+        <p className="fv-off">A visão do setor depende do estádio 3D, indisponível neste dispositivo. Preço e lugares livres continuam valendo.</p>
+      </div>
+    );
+  }
   return (
     <div className="fieldview">
       <div className="fv-frame">
@@ -96,15 +105,17 @@ function FieldView({ sector }) {
         )}
         <span className="fv-tag">Visão do setor</span>
       </div>
-      <button className="btn btn-ghost btn-block" onClick={() => setCameraMode('pov')}>
-        <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z" fill="none" stroke="currentColor" strokeWidth="2" /><circle cx="12" cy="12" r="3" fill="currentColor" /></svg>
-        Ver do assento em 3D
-      </button>
+      {!no3d && (
+        <button className="btn btn-ghost btn-block" onClick={() => setCameraMode('pov')}>
+          <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z" fill="none" stroke="currentColor" strokeWidth="2" /><circle cx="12" cy="12" r="3" fill="currentColor" /></svg>
+          Ver do assento em 3D
+        </button>
+      )}
     </div>
   );
 }
 
-function SectorPanel({ matchId, sector, onClose }) {
+function SectorPanel({ matchId, sector, onClose, no3d }) {
   const st = sectorStatus(matchId, sector.id);
   const qty = useStore((s) => s.qty);
   const setQty = useStore((s) => s.setQty);
@@ -133,7 +144,7 @@ function SectorPanel({ matchId, sector, onClose }) {
       </div>
 
       <div className="sp-scroll">
-        <FieldView sector={sector} />
+        <FieldView sector={sector} no3d={no3d} />
 
         <div className="sp-price">
           <div>
@@ -198,6 +209,23 @@ function SectorPanel({ matchId, sector, onClose }) {
         )}
       </div>
     </aside>
+  );
+}
+
+/** Shown in place of the 3D stadium when WebGL is unavailable or the scene fails. */
+function Stage3DFallback({ matchId, onRetry }) {
+  const sectorId = useStore((s) => s.sectorId);
+  const selectSector = useStore((s) => s.selectSector);
+  return (
+    <div className="stage-fallback">
+      <p className="sf-msg" role="status">
+        O estádio 3D não pôde ser exibido neste dispositivo. Escolha o setor no mapa ou na lista.
+      </p>
+      <MiniMap matchId={matchId} selectedId={sectorId} onSelect={selectSector} showCone={!!sectorId} />
+      <button className="btn btn-ghost" onClick={onRetry}>
+        Tentar carregar o 3D novamente
+      </button>
+    </div>
   );
 }
 
@@ -292,7 +320,16 @@ export default function StadiumPage() {
   const [listOpen, setListOpen] = useState(false);
   const [hint, setHint] = useState(true);
   const [ready, setReady] = useState(false);
+  const [no3d, setNo3d] = useState(() => !webglAvailable());
   const stageRef = useRef();
+  const lose3d = useCallback(() => {
+    if (useStore.getState().cameraMode === 'pov') useStore.getState().setCameraMode('sector');
+    setNo3d(true);
+  }, []);
+  const retry3d = useCallback(() => {
+    useStore.getState().setCameraMode(useStore.getState().sectorId ? 'sector' : 'overview');
+    setNo3d(false);
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(() => setReady(true), 350);
@@ -333,8 +370,14 @@ export default function StadiumPage() {
         onPointerDown={() => setHint(false)}
         onPointerLeave={() => setPos(null)}
       >
-        <ExplorerCanvas matchId={matchId} />
-        {!pov && <Tooltip matchId={matchId} pos={pos} />}
+        {no3d ? (
+          <Stage3DFallback matchId={matchId} onRetry={retry3d} />
+        ) : (
+          <ErrorBoundary fallback={null} onError={lose3d}>
+            <ExplorerCanvas matchId={matchId} onContextLost={lose3d} />
+          </ErrorBoundary>
+        )}
+        {!pov && !no3d && <Tooltip matchId={matchId} pos={pos} />}
         <div className={`stage-veil ${ready ? 'is-gone' : ''}`} />
       </div>
 
@@ -350,7 +393,7 @@ export default function StadiumPage() {
       </div>
 
       {!pov && (
-        <div className={`list-panel ${listOpen ? 'is-open' : ''}`}>
+        <div id="sector-list-panel" className={`list-panel ${listOpen ? 'is-open' : ''}`}>
           <div className="lp-head">
             <h3>Setores</h3>
             <span className="lp-sub">Clique no estádio ou na lista</span>
@@ -360,22 +403,22 @@ export default function StadiumPage() {
       )}
 
       {!pov && (
-        <button className="list-toggle btn btn-ghost" onClick={() => setListOpen((v) => !v)} aria-expanded={listOpen}>
+        <button className="list-toggle btn btn-ghost" onClick={() => setListOpen((v) => !v)} aria-expanded={listOpen} aria-controls="sector-list-panel">
           {listOpen ? 'Fechar lista' : 'Lista de setores'}
         </button>
       )}
 
-      {sector && !pov && <SectorPanel matchId={matchId} sector={sector} onClose={() => selectSector(null)} />}
+      {sector && !pov && <SectorPanel matchId={matchId} sector={sector} onClose={() => selectSector(null)} no3d={no3d} />}
       {pov && <PovBar sector={sector} matchId={matchId} />}
 
       {!pov && (
         <div className="bottom-dock">
           <Legend />
-          <Controls />
+          {!no3d && <Controls />}
         </div>
       )}
 
-      {hint && !sector && (
+      {hint && !sector && !no3d && (
         <div className="hint">
           <span><kbd>Arraste</kbd> para girar</span>
           <span><kbd>Role</kbd> para aproximar</span>
