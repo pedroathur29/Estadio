@@ -8,6 +8,7 @@ import {
 import { SECTORS, seatLayout } from '../data/sectors';
 import { sectorStatus } from '../data/matches';
 import { useStore } from '../store';
+import { prefersReducedMotion } from '../lib/motion';
 import { sweepProfile, makeSeatGeometry, ringPlacements } from './builders';
 import { makePitchTexture, makeRibbonTexture, makeLabelTexture, FIELD_W, FIELD_D } from './textures';
 
@@ -245,7 +246,7 @@ function Structure({ showRoof }) {
   const { camera } = useThree();
   const roofMat = useRef();
   useFrame((_, dt) => {
-    ribbonTex.offset.x -= dt * 0.035;
+    if (!prefersReducedMotion()) ribbonTex.offset.x -= dt * 0.035;
     // seen from under the roof, fade it and hide the trusses so the stands stay readable
     const above = camera.position.y > ROOF_H + 1.5;
     if (trussRef.current) trussRef.current.visible = above;

@@ -53,7 +53,6 @@ export const FEATURED = MATCHES.find((m) => m.featured);
 export const VENUE = {
   name: 'Arena Horizonte',
   city: 'Vale do Sol',
-  capacity: 0,
   opened: 2019,
 };
 
@@ -86,21 +85,37 @@ export function totalCapacity() {
   return SECTORS.reduce((n, s) => n + seatLayout(s).capacity, 0);
 }
 
-/** Deterministic map of occupied seats for the seat picker. */
+/**
+ * Deterministic map of occupied seats for the seat picker.
+ * The number of free seats is exactly `sectorStatus(...).available`, so the map
+ * always agrees with what the sector panel announces.
+ */
 export function occupiedSeats(matchId, sectorId) {
-  const { ratio } = sectorStatus(matchId, sectorId);
+  const { ratio, available } = sectorStatus(matchId, sectorId);
   const rnd = seeded('seats', matchId, sectorId);
   const layout = seatLayout(SECTOR_BY_ID[sectorId]);
-  const set = new Set();
+  const taken = [];
+  const free = [];
   layout.rows.forEach((row, r) => {
     // clustered occupancy: neighbours of taken seats are more likely to be taken
     let prev = false;
     row.seats.forEach((_, i) => {
       const p = prev ? Math.min(0.95, 1 - ratio + 0.25) : 1 - ratio - 0.05;
-      const taken = rnd() < p;
-      if (taken) set.add(`${r}-${i}`);
-      prev = taken;
+      const isTaken = rnd() < p;
+      (isTaken ? taken : free).push(`${r}-${i}`);
+      prev = isTaken;
     });
   });
-  return set;
+  // settle the count: flip randomly chosen seats until exactly `available` are free
+  const flip = (from, to, n) => {
+    for (let k = 0; k < n && from.length; k++) {
+      const j = Math.floor(rnd() * from.length);
+      to.push(from[j]);
+      from[j] = from[from.length - 1];
+      from.pop();
+    }
+  };
+  if (free.length > available) flip(free, taken, free.length - available);
+  else if (free.length < available) flip(taken, free, available - free.length);
+  return new Set(taken);
 }

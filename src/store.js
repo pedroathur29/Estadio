@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import { FEATURED } from './data/matches';
 
-const scrollTop = () => window.scrollTo({ top: 0, behavior: 'instant' in window ? 'instant' : 'auto' });
+// 'instant' ignores the CSS `scroll-behavior: smooth`, so a new screen starts at the top at once
+const scrollTop = () => window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
 
 export const useStore = create((set, get) => ({
   // navigation: home | stadium | seats | summary | confirm

@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import Stadium from './Stadium';
 import { useStore } from '../store';
 import { SECTOR_BY_ID, framing, viewpoint } from '../data/sectors';
+import { prefersReducedMotion } from '../lib/motion';
 
 const glProps = { antialias: true, powerPreference: 'high-performance' };
 
@@ -31,7 +32,6 @@ function CameraRig() {
     fov: 42,
     active: false,
   });
-  const lastFrame = useRef(Date.now());
 
   // Configure OrbitControls for each mode
   const configure = (mode, flying) => {
@@ -137,11 +137,13 @@ function CameraRig() {
   }, [controls]);
 
   useFrame((_, dt) => {
-    lastFrame.current = Date.now();
+    const reduced = prefersReducedMotion();
+    // reduced motion: camera jumps straight to its goal and drag inertia is off
+    if (controls) controls.enableDamping = !reduced;
     const s = shift.current;
     const sg = shiftGoal.current;
     if (Math.abs(s.x - sg.x) > 0.5 || Math.abs(s.y - sg.y) > 0.5 || camera.view?.enabled) {
-      const ks = 1 - Math.exp(-Math.min(dt, 0.05) * 4);
+      const ks = reduced ? 1 : 1 - Math.exp(-Math.min(dt, 0.05) * 4);
       s.x += (sg.x - s.x) * ks;
       s.y += (sg.y - s.y) * ks;
       if (Math.abs(s.x) < 0.5 && Math.abs(s.y) < 0.5 && sg.x === 0 && sg.y === 0) {
@@ -154,7 +156,7 @@ function CameraRig() {
     }
     const g = goal.current;
     if (!g.active || !controls) return;
-    const k = 1 - Math.exp(-Math.min(dt, 0.05) * 3.4);
+    const k = reduced ? 1 : 1 - Math.exp(-Math.min(dt, 0.05) * 3.4);
     camera.position.lerp(g.pos, k);
     controls.target.lerp(g.target, k);
     camera.fov += (g.fov - camera.fov) * k;
@@ -243,7 +245,7 @@ function HeroOrbit() {
   const { camera, size } = useThree();
   const t = useRef(0.6);
   useFrame((_, dt) => {
-    t.current += Math.min(dt, 0.05) * 0.06;
+    if (!prefersReducedMotion()) t.current += Math.min(dt, 0.05) * 0.06;
     const portrait = size.width / size.height < 1;
     const r = portrait ? 260 : 175;
     camera.position.set(Math.cos(t.current) * r, portrait ? 120 : 78, Math.sin(t.current) * r);
