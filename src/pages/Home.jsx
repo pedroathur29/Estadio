@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { HeroCanvas } from '../three/StadiumCanvas';
+import HeroStage from '../components/HeroStage';
 import Crest from '../components/Crest';
 import MiniMap from '../components/MiniMap';
 import { Header } from '../components/Chrome';
@@ -49,7 +49,7 @@ function Hero() {
   return (
     <section className="hero">
       <div className="hero-canvas" aria-hidden="true">
-        <HeroCanvas matchId={m.id} />
+        <HeroStage matchId={m.id} />
       </div>
       <div className="hero-shade" />
       <div className="wrap hero-content">

@@ -4,6 +4,24 @@ import { HX, HZ } from '../lib/geometry';
 export const FIELD_W = HX * 2 - 1.2; // grass surface including run-off
 export const FIELD_D = HZ * 2 - 1.2;
 
+function makeGrainTile(size = 256) {
+  const c = document.createElement('canvas');
+  c.width = size;
+  c.height = size;
+  const g = c.getContext('2d');
+  const img = g.createImageData(size, size);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const n = (Math.random() - 0.5) * 14; // brightness shift, mostly on the green channel
+    const light = n > 0;
+    img.data[i] = light ? 110 : 0;
+    img.data[i + 1] = light ? 255 : 0;
+    img.data[i + 2] = light ? 100 : 0;
+    img.data[i + 3] = Math.round((Math.abs(n) / (light ? 130 : 124)) * 255);
+  }
+  g.putImageData(img, 0, 0);
+  return c;
+}
+
 export function makePitchTexture(maxAniso = 8) {
   const W = 2048;
   const k = W / FIELD_W;
@@ -20,15 +38,9 @@ export function makePitchTexture(maxAniso = 8) {
     g.fillStyle = i % 2 ? '#2c7a3a' : '#327f40';
     g.fillRect(i * sw, 0, sw + 1, H);
   }
-  // subtle grain
-  const img = g.getImageData(0, 0, W, H);
-  for (let i = 0; i < img.data.length; i += 4) {
-    const n = (Math.random() - 0.5) * 14;
-    img.data[i] += n * 0.4;
-    img.data[i + 1] += n;
-    img.data[i + 2] += n * 0.3;
-  }
-  g.putImageData(img, 0, 0);
+  // subtle grain: one small noise tile repeated, instead of rewriting millions of pixels
+  g.fillStyle = g.createPattern(makeGrainTile(), 'repeat');
+  g.fillRect(0, 0, W, H);
 
   const ox = (FIELD_W - 105) / 2;
   const oz = (FIELD_D - 68) / 2;

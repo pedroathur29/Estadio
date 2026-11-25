@@ -50,6 +50,21 @@ export function makeSeatGeometry() {
   return g;
 }
 
+/** Far-away version of the chair: seat top plus a two-sided backrest (6 triangles instead of 24). */
+export function makeFarSeatGeometry() {
+  const pan = new THREE.PlaneGeometry(0.5, 0.42);
+  pan.rotateX(-Math.PI / 2);
+  pan.translate(0, 0.485, -0.02);
+  const back = (turn) => {
+    const g = new THREE.PlaneGeometry(0.5, 0.46);
+    g.rotateY(turn);
+    g.rotateX(-0.12);
+    g.translate(0, 0.68, 0.19);
+    return g;
+  };
+  return mergeGeometries([pan, back(Math.PI), back(0)].map((g) => g.toNonIndexed()));
+}
+
 /** Instance transforms for objects placed every `step` metres around the bowl. */
 export function ringPlacements(d, step, s0 = 0, s1 = null) {
   const out = [];
