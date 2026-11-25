@@ -2,7 +2,7 @@ import { Suspense, memo, useEffect, useMemo, useRef } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
-import Stadium from './Stadium';
+import Stadium, { CLEAR_GLASS } from './Stadium';
 import { useStore } from '../store';
 import { SECTOR_BY_ID, framing, viewpoint } from '../data/sectors';
 import { prefersReducedMotion } from '../lib/motion';
@@ -26,6 +26,21 @@ function overviewGoal(aspect) {
   }
   const f = aspect < 1 ? 1.45 : aspect < 1.4 ? 1.2 : 1;
   return { position: [0, 105 * f, 150 * f], target: [0, 2, 0] };
+}
+
+/**
+ * Depth-buffer precision falls with the square of the distance and rises with the near plane. A fixed
+ * near plane of 0.1 left the stacked ground layers (centimetres apart) fighting at overview distances,
+ * so the near plane follows the viewing distance and only gets very close for the seat view.
+ */
+function fitNearPlane(camera, controls, goal) {
+  const pov = useStore.getState().cameraMode === 'pov';
+  const near = pov
+    ? THREE.MathUtils.clamp(goal.active ? camera.position.distanceTo(goal.pos) * 0.02 : 0, 0.1, 5)
+    : THREE.MathUtils.clamp(camera.position.distanceTo(controls.target) * 0.02, 0.3, 5);
+  if (Math.abs(camera.near - near) <= near * 0.02) return;
+  camera.near = near;
+  camera.updateProjectionMatrix();
 }
 
 function CameraRig() {
@@ -167,19 +182,23 @@ function CameraRig() {
       if (Math.abs(s.x - sg.x) > 0.5 || Math.abs(s.y - sg.y) > 0.5) invalidate();
     }
     const g = goal.current;
-    if (!g.active || !controls) return;
-    invalidate(); // keep rendering until the flight lands
-    const k = reduced ? 1 : 1 - Math.exp(-Math.min(dt, 0.05) * 3.4);
-    camera.position.lerp(g.pos, k);
-    controls.target.lerp(g.target, k);
-    camera.fov += (g.fov - camera.fov) * k;
-    camera.updateProjectionMatrix();
-    if (camera.position.distanceTo(g.pos) < 0.03 && controls.target.distanceTo(g.target) < 0.03 && Math.abs(camera.fov - g.fov) < 0.05) {
-      camera.position.copy(g.pos);
-      controls.target.copy(g.target);
-      g.active = false;
-      configure(useStore.getState().cameraMode, false);
+    if (!controls) return;
+    if (g.active) {
+      invalidate(); // keep rendering until the flight lands
+      const k = reduced ? 1 : 1 - Math.exp(-Math.min(dt, 0.05) * 3.4);
+      camera.position.lerp(g.pos, k);
+      controls.target.lerp(g.target, k);
+      camera.fov += (g.fov - camera.fov) * k;
+      camera.updateProjectionMatrix();
+      if (camera.position.distanceTo(g.pos) < 0.03 && controls.target.distanceTo(g.target) < 0.03 && Math.abs(camera.fov - g.fov) < 0.05) {
+        camera.position.copy(g.pos);
+        controls.target.copy(g.target);
+        g.active = false;
+        configure(useStore.getState().cameraMode, false);
+      }
     }
+    // after the camera has moved, so a reduced-motion jump is drawn with the right near plane
+    fitNearPlane(camera, controls, g);
   });
 
   return null;
@@ -222,7 +241,14 @@ function ViewCapture() {
     gl.setScissorTest(true);
     // the still is taken from a seat: use the detailed chairs even if the main camera is far away
     const swapped = [];
+    const windows = [];
     scene.traverse((o) => {
+      if (o.userData.windowOf === id) {
+        // the box's own window must not cover the view from inside it
+        const m = o.material;
+        windows.push([m, m.opacity, m.depthWrite, m.emissiveIntensity]);
+        Object.assign(m, { opacity: CLEAR_GLASS, depthWrite: false, emissiveIntensity: 0 });
+      }
       const full = o.userData.fullGeometry;
       if (full && o.geometry !== full) {
         swapped.push([o, o.geometry]);
@@ -232,6 +258,9 @@ function ViewCapture() {
     gl.render(scene, cam);
     swapped.forEach(([o, geometry]) => {
       o.geometry = geometry;
+    });
+    windows.forEach(([m, opacity, depthWrite, emissiveIntensity]) => {
+      Object.assign(m, { opacity, depthWrite, emissiveIntensity });
     });
     const dpr = gl.getPixelRatio();
     const out = document.createElement('canvas');
@@ -417,7 +446,8 @@ export function HeroCanvas({ matchId, active, onDrawn }) {
       frameloop="demand"
       gl={glProps}
       dpr={[1, maxDpr(1.5)]}
-      camera={{ position: [150, 80, 150], fov: 38, near: 0.5, far: 2500 }}
+      // the home camera never gets closer than ~60 m to anything, so a far near plane is safe
+      camera={{ position: [150, 80, 150], fov: 38, near: 5, far: 2500 }}
       onCreated={({ gl }) => {
         tuneRenderer(gl);
         onDrawn?.();

@@ -24,6 +24,9 @@ export const PALETTE = {
 
 const noRaycast = () => null;
 
+/** Opacity of a box window when the camera looks out from behind it. */
+export const CLEAR_GLASS = 0.06;
+
 // ─────────────────────────────────────────────────────────────────
 // Sector: stepped concrete + instanced seats, selectable
 // ─────────────────────────────────────────────────────────────────
@@ -32,6 +35,8 @@ function Sector({ sector, matchId, interactive, seatGeo, fullSeatGeo }) {
   const isSelected = useStore((s) => s.sectorId === sector.id);
   const isHovered = useStore((s) => s.hoveredId === sector.id && s.sectorId !== sector.id);
   const dimOthers = useStore((s) => !!s.sectorId && s.sectorId !== sector.id);
+  // seat view from a box: its own window sits between the camera and the pitch
+  const lookingThrough = useStore((s) => sector.tier === 'box' && s.cameraMode === 'pov' && s.sectorId === sector.id);
   const status = sectorStatus(matchId, sector.id);
   const layout = seatLayout(sector);
   const seatsRef = useRef();
@@ -99,6 +104,7 @@ function Sector({ sector, matchId, interactive, seatGeo, fullSeatGeo }) {
       if (sector.tier === 'box') {
         const glassEm = isSelected ? PALETTE.selected : isHovered ? PALETTE.hover : status.soldOut ? PALETTE.unavailable : PALETTE.vip;
         targetStandEm.copy(glassEm).multiplyScalar(isSelected ? 0.8 : status.soldOut ? 0.15 : 0.45);
+        if (lookingThrough) targetStandEm.setRGB(0, 0, 0);
       }
       standMat.current.emissive.lerp(targetStandEm, k);
     }
@@ -125,7 +131,7 @@ function Sector({ sector, matchId, interactive, seatGeo, fullSeatGeo }) {
 
   return (
     <group>
-      <mesh geometry={standGeo} {...handlers}>
+      <mesh geometry={standGeo} userData={sector.tier === 'box' ? { windowOf: sector.id } : {}} {...handlers}>
         {sector.tier === 'box' ? (
           <meshStandardMaterial
             ref={standMat}
@@ -133,7 +139,8 @@ function Sector({ sector, matchId, interactive, seatGeo, fullSeatGeo }) {
             roughness={0.1}
             metalness={0.6}
             transparent
-            opacity={0.88}
+            opacity={lookingThrough ? CLEAR_GLASS : 0.88}
+            depthWrite={!lookingThrough}
             side={THREE.DoubleSide}
           />
         ) : (
@@ -402,20 +409,27 @@ function Structure({ showRoof }) {
   );
 }
 
+/**
+ * The flat layers under the pitch sit only centimetres apart. Pushing the lower ones back in the
+ * depth buffer (the higher the number, the lower the layer) keeps their order at any distance,
+ * including the seat view, where the near plane has to be small.
+ */
+const underlay = (layer) => ({ polygonOffset: true, polygonOffsetFactor: layer, polygonOffsetUnits: layer * 4 });
+
 function Ground() {
   return (
     <group>
       <mesh rotation-x={-Math.PI / 2} position-y={-0.02} raycast={noRaycast}>
         <circleGeometry args={[520, 64]} />
-        <meshStandardMaterial color="#0a0d13" roughness={1} />
+        <meshStandardMaterial color="#0a0d13" roughness={1} {...underlay(3)} />
       </mesh>
       <mesh rotation-x={-Math.PI / 2} position-y={-0.01} raycast={noRaycast}>
         <ringGeometry args={[95, 112, 96]} />
-        <meshStandardMaterial color="#151a23" roughness={0.9} />
+        <meshStandardMaterial color="#151a23" roughness={0.9} {...underlay(2)} />
       </mesh>
       <mesh rotation-x={-Math.PI / 2} position-y={0} raycast={noRaycast}>
         <planeGeometry args={[HX * 2, HZ * 2]} />
-        <meshStandardMaterial color="#1f5a2b" roughness={1} />
+        <meshStandardMaterial color="#1f5a2b" roughness={1} {...underlay(1)} />
       </mesh>
     </group>
   );
