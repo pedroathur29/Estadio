@@ -18,6 +18,13 @@ const createStore = (set, get) => ({
   cameraMode: 'overview', // overview | sector | pov
   roof: true,
   viewShots: {}, // sectorId -> dataURL of the field view
+
+  // seat picking
+  seatView: '3d', // 3d | map
+  seatBlock: null, // first seat position of the block on screen (null: the middle one)
+  seatBlockSize: 20,
+  hoverSeat: null,
+  povSeat: null, // seat key whose view is being shown
   captureId: null,
   resetTick: 0,
   zoomTick: { n: 0, dir: 0 },
@@ -56,6 +63,8 @@ const createStore = (set, get) => ({
       order: null,
       cameraMode: 'sector',
       captureId: get().viewShots[sectorId] ? null : sectorId,
+      seatBlock: null,
+      povSeat: null,
     });
     scrollTop();
   },
@@ -70,8 +79,28 @@ const createStore = (set, get) => ({
       cameraMode: 'sector',
       seats: changed ? [] : get().seats,
       ticketTypes: changed ? {} : get().ticketTypes,
+      seatBlock: changed ? null : get().seatBlock,
+      povSeat: null,
       captureId: get().viewShots[sectorId] ? get().captureId : sectorId,
     });
+  },
+  setSeatView(seatView) {
+    set({ seatView, povSeat: null });
+  },
+  setSeatBlock(seatBlock) {
+    set({ seatBlock });
+  },
+  setHoverSeat(key) {
+    if (get().hoverSeat !== key) set({ hoverSeat: key });
+  },
+  viewFromSeat(key) {
+    set({ povSeat: key, cameraMode: 'pov', hoverSeat: null });
+  },
+  leaveSeatView() {
+    set({ povSeat: null, cameraMode: 'seats' });
+  },
+  reframe() {
+    set({ resetTick: get().resetTick + 1 });
   },
   setHovered(hoveredId) {
     if (get().hoveredId !== hoveredId) set({ hoveredId });
@@ -131,7 +160,7 @@ export const useStore = create(
     // the purchase survives a reload and is discarded when the tab is closed
     name: 'arena-pass',
     storage: createJSONStorage(() => window.sessionStorage),
-    partialize: ({ matchId, sectorId, qty, seats, ticketTypes, payment, order }) => ({ matchId, sectorId, qty, seats, ticketTypes, payment, order }),
+    partialize: ({ matchId, sectorId, qty, seats, ticketTypes, payment, order, seatView }) => ({ matchId, sectorId, qty, seats, ticketTypes, payment, order, seatView }),
     merge: (saved, current) => {
       if (!saved || !MATCH_BY_ID[saved.matchId] || (saved.sectorId && !SECTOR_BY_ID[saved.sectorId])) return current;
       const state = { ...current, ...saved };

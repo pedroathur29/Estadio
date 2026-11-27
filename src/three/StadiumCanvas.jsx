@@ -3,8 +3,9 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import Stadium, { CLEAR_GLASS } from './Stadium';
+import SeatPicker from './SeatPicker';
 import { useStore } from '../store';
-import { SECTOR_BY_ID, framing, viewpoint } from '../data/sectors';
+import { SECTOR_BY_ID, framing, seatLayout, viewpoint } from '../data/sectors';
 import { prefersReducedMotion } from '../lib/motion';
 import { lowEndDevice } from '../lib/webgl';
 
@@ -26,6 +27,50 @@ function overviewGoal(aspect) {
   }
   const f = aspect < 1 ? 1.45 : aspect < 1.4 ? 1.2 : 1;
   return { position: [0, 105 * f, 150 * f], target: [0, 2, 0] };
+}
+
+// how steeply each level is seen while choosing seats; boxes sit under the upper tier, so almost level
+const SEAT_ELEVATION = { lower: 0.74, upper: 0.66, box: 0.22 };
+
+/** Camera that fits one block of seats in the part of the screen the panels leave free. */
+function blockFraming(sector, from, count, size, fov) {
+  const rows = seatLayout(sector).rows.map((row) => row.seats.slice(from, from + count)).filter((r) => r.length);
+  if (!rows.length) return framing(sector);
+  const box = new THREE.Box3();
+  let width = 0;
+  rows.forEach((row) => {
+    row.forEach((s) => box.expandByPoint(new THREE.Vector3(s.x, s.y + 0.6, s.z)));
+    const first = row[0];
+    const last = row[row.length - 1];
+    width = Math.max(width, Math.hypot(last.x - first.x, last.z - first.z) + 1.5);
+  });
+  const centre = box.getCenter(new THREE.Vector3());
+  const middle = rows[Math.floor(rows.length / 2)];
+  const { rot } = middle[Math.floor(middle.length / 2)];
+  const elevation = SEAT_ELEVATION[sector.tier];
+  const front = rows[0][0];
+  const back = rows[rows.length - 1][0];
+  const depth = Math.hypot(back.x - front.x, back.z - front.z);
+  const height = depth * Math.sin(elevation) + (back.y - front.y) * Math.cos(elevation) + 3;
+
+  const mobile = size.width <= 860;
+  const freeW = size.width - (mobile ? 20 : 480);
+  const freeH = mobile ? size.height * 0.32 : size.height - 230;
+  const focal = size.height / (2 * Math.tan(THREE.MathUtils.degToRad(fov) / 2));
+  const distance = Math.max(12, (width * focal) / freeW, (height * focal) / Math.max(200, freeH));
+  const flat = distance * Math.cos(elevation);
+  return {
+    target: centre.toArray(),
+    // the seats face the pitch, so the camera stands on the pitch side of them
+    position: [centre.x - Math.sin(rot) * flat, centre.y + distance * Math.sin(elevation), centre.z - Math.cos(rot) * flat],
+  };
+}
+
+/** Eye position of a person sitting on one seat. */
+function seatEye(sector, key) {
+  const [r, i] = key.split('-').map(Number);
+  const seat = seatLayout(sector).rows[r]?.seats[i];
+  return seat && [seat.x - Math.sin(seat.rot) * 0.15, seat.y + 1.25, seat.z - Math.cos(seat.rot) * 0.15];
 }
 
 /**
@@ -52,6 +97,11 @@ function CameraRig() {
   const sectorId = useStore((s) => s.sectorId);
   const resetTick = useStore((s) => s.resetTick);
   const zoomTick = useStore((s) => s.zoomTick);
+  const seatBlock = useStore((s) => s.seatBlock);
+  const blockSize = useStore((s) => s.seatBlockSize);
+  const povSeat = useStore((s) => s.povSeat);
+  // the seat view is fitted to the screen, so it is framed again when the screen changes
+  const screenKey = cameraMode === 'seats' ? `${size.width}x${size.height}` : '';
   const goal = useRef({
     pos: new THREE.Vector3(),
     target: new THREE.Vector3(),
@@ -77,8 +127,8 @@ function CameraRig() {
       controls.minPolarAngle = Math.PI * 0.22;
       controls.maxPolarAngle = Math.PI * 0.6;
     } else {
-      controls.minDistance = 18;
-      controls.maxDistance = 360;
+      controls.minDistance = mode === 'seats' ? 5 : 18;
+      controls.maxDistance = mode === 'seats' ? 110 : 360;
       controls.minPolarAngle = 0.05;
       controls.maxPolarAngle = Math.PI / 2 - 0.04;
     }
@@ -96,11 +146,14 @@ function CameraRig() {
   useEffect(() => {
     const sector = sectorId ? SECTOR_BY_ID[sectorId] : null;
     if (cameraMode === 'pov' && sector) {
-      const vp = viewpoint(sector);
-      const eye = new THREE.Vector3(...vp.eye);
+      const from = (povSeat && seatEye(sector, povSeat)) || viewpoint(sector).eye;
+      const eye = new THREE.Vector3(...from);
       const dir = new THREE.Vector3(0, 0, 0).sub(eye).normalize();
       const target = eye.clone().add(dir.multiplyScalar(0.6));
-      flyTo(vp.eye, target.toArray(), 62);
+      flyTo(from, target.toArray(), 62);
+    } else if (cameraMode === 'seats' && sector) {
+      const f = blockFraming(sector, seatBlock ?? 0, blockSize, size, 42);
+      flyTo(f.position, f.target, 42);
     } else if (cameraMode === 'sector' && sector) {
       const f = framing(sector);
       const aspectBoost = size.width / size.height < 1 ? 1.6 : 1;
@@ -112,19 +165,22 @@ function CameraRig() {
       flyTo(o.position, o.target, 42);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cameraMode, sectorId, resetTick, controls]);
+  }, [cameraMode, sectorId, resetTick, controls, seatBlock, blockSize, povSeat, screenKey]);
 
   // keep the subject clear of the side panel (desktop) or bottom sheet (mobile)
   const shift = useRef({ x: 0, y: 0 });
   const shiftGoal = useRef({ x: 0, y: 0 });
   useEffect(() => {
-    const panelOpen = sectorId && cameraMode === 'sector';
+    const panelOpen = sectorId && (cameraMode === 'sector' || cameraMode === 'seats');
     const mobile = size.width <= 860;
-    shiftGoal.current = panelOpen
-      ? mobile
-        ? { x: 0, y: size.height * 0.26 }
-        : { x: Math.min(200, size.width * 0.2), y: 0 }
-      : { x: 0, y: 0 };
+    if (panelOpen) {
+      shiftGoal.current = mobile
+        ? { x: 0, y: size.height * (cameraMode === 'seats' ? 0.18 : 0.26) }
+        : { x: Math.min(200, size.width * 0.2), y: 0 };
+    } else {
+      // the sector list covers the left side of the overview: centre the stadium in what is left
+      shiftGoal.current = { x: cameraMode === 'overview' && !mobile ? -Math.min(150, size.width * 0.1) : 0, y: 0 };
+    }
   }, [sectorId, cameraMode, size]);
 
   // zoom buttons
@@ -139,7 +195,8 @@ function CameraRig() {
       return;
     }
     const offset = camera.position.clone().sub(controls.target);
-    const len = THREE.MathUtils.clamp(offset.length() * (zoomTick.dir > 0 ? 0.72 : 1.38), 18, 360);
+    const [min, max] = mode === 'seats' ? [5, 110] : [18, 360];
+    const len = THREE.MathUtils.clamp(offset.length() * (zoomTick.dir > 0 ? 0.72 : 1.38), min, max);
     offset.setLength(len);
     goal.current.pos.copy(controls.target).add(offset);
     goal.current.target.copy(controls.target);
@@ -185,7 +242,8 @@ function CameraRig() {
     if (!controls) return;
     if (g.active) {
       invalidate(); // keep rendering until the flight lands
-      const k = reduced ? 1 : 1 - Math.exp(-Math.min(dt, 0.05) * 3.4);
+      // generous clamp: on slow devices the flight takes about the same time, with fewer frames
+      const k = reduced ? 1 : 1 - Math.exp(-Math.min(dt, 0.15) * 3.4);
       camera.position.lerp(g.pos, k);
       controls.target.lerp(g.target, k);
       camera.fov += (g.fov - camera.fov) * k;
@@ -327,7 +385,8 @@ function ExplorerTicker() {
   return null;
 }
 
-export const ExplorerCanvas = memo(function ExplorerCanvas({ matchId, onContextLost }) {
+/** `picking` is the id of the sector whose seats are being chosen, if any. */
+export const ExplorerCanvas = memo(function ExplorerCanvas({ matchId, onContextLost, picking = null }) {
   return (
     <Canvas
       frameloop="demand"
@@ -337,7 +396,8 @@ export const ExplorerCanvas = memo(function ExplorerCanvas({ matchId, onContextL
         // the GPU can drop the context (memory pressure, driver reset): let the page offer a way out
         gl.domElement.addEventListener('webglcontextlost', (e) => {
           e.preventDefault();
-          onContextLost?.();
+          // leaving the screen also releases the context (after the canvas is gone): not a failure
+          if (gl.domElement.isConnected) onContextLost?.();
         });
       }}
       dpr={[1, maxDpr(1.75)]}
@@ -348,11 +408,13 @@ export const ExplorerCanvas = memo(function ExplorerCanvas({ matchId, onContextL
     >
       <fog attach="fog" args={['#06080d', 320, 900]} />
       <Suspense fallback={null}>
-        <Stadium matchId={matchId} interactive />
+        <Stadium matchId={matchId} interactive picking={picking} />
+        {picking && <SeatPicker matchId={matchId} sectorId={picking} />}
       </Suspense>
       <OrbitControls makeDefault enableDamping dampingFactor={0.08} />
       <CameraRig />
-      <ViewCapture />
+      {/* the sector still is only needed by the stadium screen, and must not include the picking layer */}
+      {!picking && <ViewCapture />}
       <ExplorerTicker />
     </Canvas>
   );

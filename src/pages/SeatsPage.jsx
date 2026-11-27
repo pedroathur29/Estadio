@@ -1,11 +1,15 @@
-import { useMemo, useState } from 'react';
-import { useAccount } from '../account';
+import { useState } from 'react';
 import { Header, Steps } from '../components/Chrome';
-import { SECTOR_BY_ID, seatLayout, ROW_LETTERS } from '../data/sectors';
-import { MATCH_BY_ID, TEAMS, sectorStatus, occupiedSeats } from '../data/matches';
-import { fmtShort, fmtTime, money } from '../lib/format';
-import { useStore } from '../store';
+import { ContinueButton, PickedSeats, Quantity, Subtotal, ViewSwitch } from '../components/SeatOrder';
 import Crest from '../components/Crest';
+import MiniMap from '../components/MiniMap';
+import { SECTOR_BY_ID, ROW_LETTERS } from '../data/sectors';
+import { MATCH_BY_ID, TEAMS } from '../data/matches';
+import { seatInfo, useSeatPlan } from '../lib/useSeatPlan';
+import { fmtShort, fmtTime, money } from '../lib/format';
+import { webglAvailable } from '../lib/webgl';
+import { useStore } from '../store';
+import Seats3D from './Seats3D';
 
 const BLOCK = 20;
 
@@ -40,110 +44,21 @@ export function OrderAside({ children, title = 'Seu pedido' }) {
   );
 }
 
-export default function SeatsPage() {
-  const matchId = useStore((s) => s.matchId);
-  const sectorId = useStore((s) => s.sectorId);
-  const qty = useStore((s) => s.qty);
-  const seats = useStore((s) => s.seats);
-  const toggleSeat = useStore((s) => s.toggleSeat);
-  const clearSeats = useStore((s) => s.clearSeats);
-  const setQty = useStore((s) => s.setQty);
+/** Flat seat map: the keyboard-friendly alternative to the 3D picker, and its fallback. */
+function SeatMap({ failed }) {
+  const plan = useSeatPlan(BLOCK);
+  const { matchId, sector, layout, taken, mine, maxLen, blocks, block, showBlock, freeInBlock, seats, toggleSeat } = plan;
   const go = useStore((s) => s.go);
-  const sector = SECTOR_BY_ID[sectorId];
-  const st = sectorStatus(matchId, sectorId);
-  const layout = seatLayout(sector);
-  const orders = useAccount((s) => s.orders);
-  // seats from this browser's own orders are shown apart and cannot be bought twice
-  const mine = useMemo(
-    () => new Set(orders.filter((o) => o.matchId === matchId && o.sectorId === sectorId).flatMap((o) => o.lines.map((l) => l.key))),
-    [orders, matchId, sectorId],
-  );
-  const taken = useMemo(() => new Set([...occupiedSeats(matchId, sectorId), ...mine]), [matchId, sectorId, mine]);
   // roving tab stop: the whole map is one Tab entry, arrows move between free seats
   const [cursor, setCursor] = useState(null);
-  const maxLen = Math.max(...layout.rows.map((r) => r.seats.length));
-  const blocks = Math.max(1, Math.ceil(maxLen / BLOCK));
-  const [block, setBlock] = useState(() => Math.floor((blocks - 1) / 2));
+  const [looking, setLooking] = useState(null);
   const selectedKeys = new Set(seats.map((s) => s.key));
-  // notice about a split suggestion; it only applies while that exact selection is kept
-  const [split, setSplit] = useState(null);
-  const splitText = split && split.keys === seats.map((s) => s.key).join() ? split.text : '';
-  const maxQty = Math.min(6, st.available);
-
-  const seatInfo = (r, i) => ({
-    key: `${r}-${i}`,
-    row: ROW_LETTERS[r],
-    num: i + 1,
-    label: `Fila ${ROW_LETTERS[r]} · Assento ${i + 1}`,
-  });
-
-  // first run of `size` adjacent free seats, searching the preferred block and rows first
-  const findRun = (size, used, nearBlock, nearRow) => {
-    const rowsOrder = layout.rows.map((_, r) => r).sort((a, b) => Math.abs(a - nearRow) - Math.abs(b - nearRow));
-    const blocksOrder = Array.from({ length: blocks }, (_, i) => i).sort((a, b) => Math.abs(a - nearBlock) - Math.abs(b - nearBlock));
-    for (const b of blocksOrder) {
-      for (const r of rowsOrder) {
-        const len = layout.rows[r].seats.length;
-        const from = b * BLOCK;
-        const to = Math.min(len, from + BLOCK);
-        const centre = (from + to) / 2;
-        const starts = [];
-        for (let i = from; i + size <= to; i++) starts.push(i);
-        starts.sort((x, y) => Math.abs(x + size / 2 - centre) - Math.abs(y + size / 2 - centre));
-        for (const s0 of starts) {
-          const keys = Array.from({ length: size }, (_, k) => `${r}-${s0 + k}`);
-          if (keys.every((key) => !taken.has(key) && !used.has(key))) return { b, r, s0, keys };
-        }
-      }
-    }
-    return null;
-  };
-
-  const suggest = () => {
-    // prefer `qty` seats together (middle rows, centre of the block); when there is no such run,
-    // fall back to the largest groups available, each one as close as possible to the first
-    const used = new Set();
-    const picks = [];
-    const groups = [];
-    let nearBlock = block;
-    let nearRow = layout.rows.length * 0.4;
-    while (picks.length < qty) {
-      let run = null;
-      let size = qty - picks.length;
-      for (; size > 0; size--) {
-        run = findRun(size, used, nearBlock, nearRow);
-        if (run) break;
-      }
-      if (!run) break;
-      if (!groups.length) {
-        nearBlock = run.b;
-        nearRow = run.r;
-      }
-      groups.push(run);
-      run.keys.forEach((key, k) => {
-        used.add(key);
-        picks.push(seatInfo(run.r, run.s0 + k));
-      });
-    }
-    if (!picks.length) return;
-    clearSeats();
-    picks.forEach(toggleSeat);
-    setBlock(groups[0].b);
-    setSplit(
-      groups.length > 1
-        ? {
-            keys: picks.map((p) => p.key).join(),
-            text: `Não há ${qty} lugares juntos neste setor. Sugerimos ${groups.length} grupos separados${
-              groups.some((g) => g.b !== groups[0].b) ? ', em blocos diferentes' : ''
-            }.`,
-          }
-        : null,
-    );
-  };
+  const from = block * BLOCK;
+  const columns = Math.min(BLOCK, maxLen - from);
 
   // free seats of the block on screen, and the one that Tab lands on
   const freeKeys = layout.rows.flatMap((row, r) =>
-    row.seats.map((_, i) => `${r}-${i}`).slice(block * BLOCK, (block + 1) * BLOCK).filter((key) => !taken.has(key)),
+    row.seats.map((_, i) => `${r}-${i}`).slice(from, from + BLOCK).filter((key) => !taken.has(key)),
   );
   const tabKey = freeKeys.includes(cursor) ? cursor : (freeKeys.find((key) => selectedKeys.has(key)) ?? freeKeys[0]);
 
@@ -166,15 +81,6 @@ export default function SeatsPage() {
     if (next) e.currentTarget.querySelector(`[data-key="${next.join('-')}"]`)?.focus();
   };
 
-  const total = st.price * seats.length;
-  const done = seats.length === qty;
-  // rendered twice (side panel and mobile bottom bar); CSS shows only one of them
-  const continueButton = (
-    <button className="btn btn-primary btn-block btn-continue" disabled={!done} onClick={() => go('summary')}>
-      {done ? 'Continuar para o resumo' : `Faltam ${qty - seats.length} assento${qty - seats.length > 1 ? 's' : ''}`}
-    </button>
-  );
-
   return (
     <>
       <Header />
@@ -192,58 +98,67 @@ export default function SeatsPage() {
               <div>
                 <h1>{sector.name}</h1>
                 <p className="muted">
-                  Escolha {qty === 1 ? 'seu assento' : `${qty} assentos`}. No teclado, use as setas para andar pelo mapa.
+                  {money(plan.st.price)} por lugar. No teclado, use as setas para andar pelo mapa.
                 </p>
               </div>
-              <button className="btn btn-ghost" onClick={suggest}>
-                ✦ Sugerir melhores lugares
-              </button>
+              <ViewSwitch disabled3d={failed} />
             </div>
 
-            <p className="seat-notice" role="status">{splitText}</p>
+            {failed && (
+              <p className="seat-notice" role="status">O estádio 3D não pôde ser exibido neste dispositivo. Escolha pelo mapa.</p>
+            )}
 
             {blocks > 1 && (
-              <div className="blocks" role="group" aria-label="Blocos do setor">
-                {Array.from({ length: blocks }, (_, b) => (
-                  <button
-                    key={b}
-                    aria-pressed={block === b}
-                    className={block === b ? 'is-active' : ''}
-                    onClick={() => setBlock(b)}
-                  >
-                    Bloco {b + 1}
-                    {seats.some((s) => Math.floor((s.num - 1) / BLOCK) === b) && <i className="dot" />}
-                  </button>
-                ))}
+              <div className="blocks-row">
+                <div className="blocks" role="group" aria-label="Blocos do setor">
+                  {Array.from({ length: blocks }, (_, b) => (
+                    <button key={b} aria-pressed={block === b} className={block === b ? 'is-active' : ''} onClick={() => showBlock(b)}>
+                      Bloco {b + 1}
+                      <small>{freeInBlock(b)} livres</small>
+                      {seats.some((s) => Math.floor((s.num - 1) / BLOCK) === b) && <i className="dot" />}
+                    </button>
+                  ))}
+                </div>
+                <div className="blocks-where" aria-hidden="true">
+                  <MiniMap matchId={matchId} selectedId={sector.id} />
+                </div>
               </div>
             )}
+
+            <p className="seat-readout" aria-live="off">
+              {looking ?? 'Passe o cursor sobre um lugar para ver a fila e o número.'}
+            </p>
 
             <div className="pitch-edge">
               <span>Campo</span>
             </div>
 
             <div className="seatmap-scroll">
-              <div className="seatmap" style={{ '--cols': BLOCK }} onKeyDown={onSeatKeys}>
+              <div className="seatmap" style={{ '--cols': BLOCK }} onKeyDown={onSeatKeys} onMouseLeave={() => setLooking(null)}>
                 {layout.rows.map((row, r) => {
-                  const from = block * BLOCK;
-                  const to = Math.min(row.seats.length, from + BLOCK);
                   const cells = [];
-                  for (let i = from; i < to; i++) {
+                  for (let i = from; i < Math.min(row.seats.length, from + BLOCK); i++) {
                     const key = `${r}-${i}`;
                     const isTaken = taken.has(key);
                     const isSel = selectedKeys.has(key);
+                    const info = seatInfo(r, i);
+                    const state = mine.has(key) ? 'já é seu' : isTaken ? 'ocupado' : isSel ? 'escolhido' : 'livre';
                     cells.push(
                       <button
                         key={key}
                         className={`seat ${sector.kind === 'vip' ? 'vip' : ''} ${isTaken ? 'taken' : ''} ${mine.has(key) ? 'mine' : ''} ${isSel ? 'sel' : ''}`}
-                        disabled={isTaken}
+                        // aria-disabled keeps the seat hoverable, so its number can still be read
+                        aria-disabled={isTaken}
                         aria-pressed={isSel}
-                        aria-label={`${seatInfo(r, i).label}${mine.has(key) ? ', já é seu' : isTaken ? ', ocupado' : ''}`}
-                        title={seatInfo(r, i).label}
+                        aria-label={`${info.label}, ${state}`}
                         data-key={key}
                         tabIndex={key === tabKey ? 0 : -1}
-                        onFocus={() => setCursor(key)}
-                        onClick={() => toggleSeat(seatInfo(r, i))}
+                        onMouseEnter={() => setLooking(`${info.label}, ${state}`)}
+                        onFocus={() => {
+                          setCursor(key);
+                          setLooking(`${info.label}, ${state}`);
+                        }}
+                        onClick={() => !isTaken && toggleSeat(info)}
                       >
                         {isSel ? '✓' : ''}
                       </button>,
@@ -252,72 +167,72 @@ export default function SeatsPage() {
                   return (
                     <div className="seat-row" key={r}>
                       <span className="row-l">{ROW_LETTERS[r]}</span>
-                      <div className="row-seats">{cells.length ? cells : <span className="row-empty">—</span>}</div>
+                      <div className="row-seats">{cells.length ? cells : <span className="row-empty">sem lugares</span>}</div>
                       <span className="row-l">{ROW_LETTERS[r]}</span>
                     </div>
                   );
                 })}
+                <div className="seat-row seat-numbers" aria-hidden="true">
+                  <span className="row-l" />
+                  <div className="row-seats">
+                    {Array.from({ length: columns }, (_, c) => (
+                      <span key={c}>{from + c + 1}</span>
+                    ))}
+                  </div>
+                  <span className="row-l" />
+                </div>
               </div>
             </div>
 
             <div className="seat-legend">
               <span><i className={`seat-sw ${sector.kind === 'vip' ? 'vip' : ''}`} />Livre</span>
-              <span><i className="seat-sw sel" />Selecionado</span>
+              <span><i className="seat-sw sel" />Seu lugar</span>
               <span><i className="seat-sw taken" />Ocupado</span>
               {mine.size > 0 && <span><i className="seat-sw mine" />Já é seu</span>}
-              <span className="muted">
-                Assentos {block * BLOCK + 1} a {Math.min(maxLen, (block + 1) * BLOCK)}. A fila A é a mais próxima do gramado.
-              </span>
+              <span className="muted">A fila A é a mais próxima do gramado.</span>
             </div>
           </section>
 
           <OrderAside>
-            <div className="qty compact">
-              <span className="label">Ingressos</span>
-              <div className="stepper">
-                <button onClick={() => setQty(Math.max(1, qty - 1))} disabled={qty <= 1} aria-label="Diminuir quantidade">−</button>
-                <output>{qty}</output>
-                <button onClick={() => setQty(Math.min(maxQty, qty + 1))} disabled={qty >= maxQty} aria-label="Aumentar quantidade">+</button>
-              </div>
-            </div>
-            <ul className="picked">
-              {Array.from({ length: qty }, (_, i) => {
-                const s = seats[i];
-                return (
-                  <li key={i} className={s ? 'is-filled' : ''}>
-                    <span className="pk-n">{i + 1}</span>
-                    {s ? (
-                      <>
-                        <span>{s.label}</span>
-                        <button className="pk-x" onClick={() => toggleSeat(s)} aria-label={`Remover ${s.label}`}>
-                          ×
-                        </button>
-                      </>
-                    ) : (
-                      <span className="muted">Selecione no mapa</span>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-            <div className="oa-total">
-              <span>Subtotal</span>
-              <strong>{money(total)}</strong>
-            </div>
-            {continueButton}
+            <Quantity plan={plan} />
+            <button className="btn btn-outline btn-block" onClick={plan.suggest}>
+              Sugerir melhores lugares
+            </button>
+            <p className="seat-notice" role="status">{plan.notice}</p>
+            <PickedSeats plan={plan} />
+            <Subtotal plan={plan} />
+            <ContinueButton plan={plan} />
           </OrderAside>
         </div>
 
         <div className="seat-bar">
           <div className="seat-bar-info">
             <span>
-              {seats.length} de {qty} assento{qty > 1 ? 's' : ''}
+              {seats.length} de {plan.qty} assento{plan.qty > 1 ? 's' : ''}
             </span>
-            <strong>{money(total)}</strong>
+            <strong>{money(plan.total)}</strong>
           </div>
-          {continueButton}
+          <ContinueButton plan={plan} />
         </div>
       </main>
     </>
   );
+}
+
+export default function SeatsPage() {
+  const view = useStore((s) => s.seatView);
+  const setView = useStore((s) => s.setSeatView);
+  const [failed, setFailed] = useState(() => !webglAvailable());
+
+  if (view === '3d' && !failed) {
+    return (
+      <Seats3D
+        onFail={() => {
+          setFailed(true);
+          setView('map');
+        }}
+      />
+    );
+  }
+  return <SeatMap failed={failed} />;
 }

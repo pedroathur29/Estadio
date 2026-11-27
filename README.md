@@ -20,7 +20,9 @@ npm run build    # gera dist/ para publicar
   com cores por estado (disponível, VIP, selecionado, esgotado) e transição suave de câmera.
 - **Visão do assento**: a prévia no painel é renderizada na hora a partir de um assento do setor; o botão
   "Ver do assento em 3D" leva a câmera até lá e permite olhar ao redor.
-- **Fluxo de compra simulado**: quantidade → mapa de assentos (com sugestão automática) → resumo com inteira/meia
+- **Escolha do lugar dentro do 3D**: cadeiras clicáveis (livres em cor, ocupadas em cinza), figura marcando onde a
+  pessoa vai sentar e a vista de cada assento. O mapa plano continua como alternativa (teclado e aparelhos sem 3D).
+- **Fluxo de compra simulado**: quantidade → assentos (com sugestão automática) → resumo com inteira/meia
   e taxa → confirmação com ingressos ilustrativos.
 - **Agenda com filtros** por competição, adversário e preço, e uma **página por jogo** com preço de cada setor
   (dá para comprar sem passar pelo 3D).

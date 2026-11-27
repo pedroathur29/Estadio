@@ -367,10 +367,21 @@ dl, dd { margin: 0; }
 .seat-card-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
 .seat-card h1, .summary-card h1 { font-size: clamp(36px, 4.4vw, 50px); margin-bottom: 6px; }
 .blocks { display: flex; gap: 6px; overflow-x: auto; padding: 3px; margin-bottom: 16px; scrollbar-width: none; }
-.blocks button { position: relative; flex: none; padding: 8px 14px; border-radius: var(--radius); font-size: 13.5px; font-weight: 600; border: 2px solid var(--line); }
+.blocks button { position: relative; flex: none; display: grid; justify-items: center; padding: 5px 14px; border-radius: var(--radius); font-size: 13.5px; font-weight: 700; line-height: 1.3; border: 2px solid var(--line); }
+.blocks button small { font-size: 11.5px; font-weight: 400; }
+.blocks-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+.blocks-row .blocks { margin-bottom: 0; min-width: 0; }
+.blocks-where { flex: none; }
+.blocks-where .minimap { width: 64px; height: 78px; }
+.blocks-where .mm-compass { display: none; }
+.seat-readout { min-height: 24px; margin-bottom: 8px; text-align: center; font-weight: 700; font-size: 14px; }
+.seat-numbers .row-seats span { width: 24px; text-align: center; font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.seat-card-head .view-switch { min-width: 270px; }
+.order-aside .seat-notice { margin: 0; }
+.order-aside .seat-notice:empty { display: none; }
 .blocks button:hover { border-color: var(--line-2); }
 .blocks button.is-active { background: var(--ink); color: #fff; border-color: var(--ink); }
-.blocks .dot { position: absolute; top: 3px; right: 4px; width: 8px; height: 8px; border-radius: 50%; background: var(--yellow); }
+.blocks .dot { background: var(--yellow); }
 .seat-notice { margin-bottom: 14px; padding: 10px 14px; border-radius: var(--radius); font-size: 14px; border: 2px solid var(--yellow); background: #fff6d6; }
 .seat-notice:empty { margin: 0; padding: 0; border: 0; }
 /* the grass, mown in stripes, with its touchline */
@@ -384,11 +395,13 @@ dl, dd { margin: 0; }
 .row-empty { color: var(--muted); font-size: 12px; }
 .seat { width: 24px; height: 24px; border-radius: 6px 6px 3px 3px; background: var(--blue); font-size: 13px; font-weight: 800; color: var(--yellow-ink); display: grid; place-items: center; transition: transform 0.12s var(--ease); }
 .seat.vip { background: var(--gold); }
-.seat:hover:not(:disabled) { transform: translateY(-2px); background: var(--blue-2); }
-.seat.vip:hover:not(:disabled) { background: #d8ab48; }
-.seat.taken { background: var(--off); }
-.seat.mine { background: var(--ok); }
-.seat.sel, .seat.sel:hover:not(:disabled), .seat.vip.sel { background: var(--yellow); box-shadow: 0 0 0 2px var(--ink); animation: pop 0.25s var(--ease); }
+.seat:hover:not([aria-disabled='true']) { transform: translateY(-2px); background: var(--blue-2); }
+.seat.vip:hover:not([aria-disabled='true']) { background: #d8ab48; }
+/* occupied seats are smaller, so the free ones stand out */
+.seat.taken, .seat.vip.taken { background: var(--off); transform: scale(0.82); cursor: not-allowed; }
+.seat.taken:hover { background: var(--off); }
+.seat.mine, .seat.vip.mine { background: var(--ok); transform: none; }
+.seat.sel, .seat.sel:hover:not([aria-disabled='true']), .seat.vip.sel { background: var(--yellow); box-shadow: 0 0 0 2px var(--ink); animation: pop 0.25s var(--ease); }
 @keyframes pop { 50% { transform: scale(1.2); } }
 .seat-legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 18px; font-size: 13px; color: var(--muted); align-items: center; }
 .seat-legend span { display: inline-flex; gap: 7px; align-items: center; }
@@ -536,8 +549,8 @@ dl, dd { margin: 0; }
 .avail-mid .avail-fill { background: var(--warn); }
 .avail-low .avail-fill { background: var(--danger); }
 .sp-blurb { color: var(--muted); font-size: 14px; margin-bottom: 14px; }
-.sp-map { border-radius: var(--radius); background: var(--surface-2); border: 1px solid var(--line); padding: 10px 30px; }
-.sp-map .minimap { width: 100%; max-height: 230px; }
+.sp-map { border-radius: var(--radius); background: var(--surface-2); border: 1px solid var(--line); padding: 8px; }
+.sp-map .minimap { width: 100%; height: 150px; }
 .sp-alt { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; }
 .sp-alt .label { width: 100%; }
 .chip { padding: 7px 12px; border-radius: var(--radius); font-size: 13px; background: rgba(255, 255, 255, 0.07); border: 1px solid var(--line); }
@@ -572,8 +585,47 @@ kbd { font-family: var(--font); font-size: 12px; font-weight: 600; color: var(--
 .pov-info small { font-size: 12px; color: var(--muted); }
 .pov-actions { display: flex; align-items: center; gap: 8px; }
 .is-pov .topbar .steps { display: none; }
-.demo-mini { position: absolute; z-index: 8; right: 18px; bottom: 22px; font-size: 12px; color: var(--muted-2); pointer-events: none; }
-.has-sector .demo-mini, .is-pov .demo-mini { display: none; }
+
+.view-switch { display: flex; gap: 3px; padding: 3px; border-radius: var(--radius); background: var(--surface-3); }
+.view-switch button { flex: 1; min-height: 34px; padding: 0 12px; border-radius: 6px; font-size: 13.5px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.view-switch button[aria-pressed='true'] { background: var(--text); color: var(--bg); }
+.view-switch button:disabled { opacity: 0.45; }
+.lp-sort { margin: 10px 12px 0; }
+.tone-low { color: var(--danger) !important; }
+.tone-mid { color: var(--warn) !important; }
+.sp-facts { display: grid; grid-template-columns: 124px minmax(0, 1fr); gap: 14px; align-items: stretch; }
+.sp-facts .rows { align-content: center; font-size: 13.5px; }
+.sp-facts .rows > div { padding: 7px 0; }
+
+/* ── Seat picking inside the stadium ──────────────────── */
+.pick-panel { position: absolute; z-index: 11; top: 76px; right: 18px; bottom: 18px; width: 360px; display: flex; flex-direction: column; border-radius: 12px; background: rgba(17, 26, 51, 0.96); border: 1px solid var(--line-2); animation: slide-l 0.45s var(--ease) both; }
+.pick-head { display: grid; gap: 8px; padding: 18px 18px 14px; border-bottom: 1px solid var(--line); }
+.pick-head h1 { font-family: var(--font-display); font-size: 36px; font-weight: 800; text-transform: uppercase; line-height: 1; }
+.pick-head p { font-size: 14px; color: var(--muted); }
+.pick-body { flex: 1; min-height: 0; overflow-y: auto; display: grid; align-content: start; gap: 12px; padding: 16px 18px; }
+.picker .seat-notice { background: rgba(255, 181, 71, 0.12); border-color: var(--warn); margin: 0; }
+.picker .seat-notice:empty { display: none; }
+.pick-foot { display: grid; gap: 12px; padding: 0 18px 18px; }
+.picker .oa-total { border-top-color: var(--line-2); }
+.picker .picked li.is-filled { background: rgba(200, 255, 46, 0.08); border-color: var(--accent); }
+.picker .is-filled .pk-n { background: var(--accent); color: var(--accent-ink); }
+.pk-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.pk-actions .link { font-size: 13px; }
+
+.pick-dock { position: absolute; z-index: 9; left: 18px; right: 396px; bottom: 18px; display: grid; gap: 10px; pointer-events: none; }
+.pick-dock > *, .pick-tools > * { pointer-events: auto; }
+.pick-blocks { display: flex; gap: 6px; overflow-x: auto; padding: 6px; border-radius: 12px; background: rgba(17, 26, 51, 0.92); border: 1px solid var(--line); width: fit-content; max-width: 100%; scrollbar-width: thin; scrollbar-color: var(--surface-3) transparent; }
+.pick-blocks button { position: relative; flex: none; display: grid; justify-items: center; min-width: 84px; padding: 6px 12px; border-radius: var(--radius); font-size: 13.5px; font-weight: 700; line-height: 1.25; }
+.pick-blocks button small { font-size: 11.5px; font-weight: 400; color: var(--muted); }
+.pick-blocks button:hover { background: rgba(255, 255, 255, 0.08); }
+.pick-blocks button[aria-pressed='true'] { background: var(--text); color: var(--bg); }
+.pick-blocks button[aria-pressed='true'] small { color: var(--bg); }
+.pick-blocks .dot, .blocks .dot { position: absolute; top: 3px; right: 5px; width: 8px; height: 8px; border-radius: 50%; }
+.pick-blocks .dot { background: var(--accent); box-shadow: 0 0 0 1px var(--night); }
+.pick-tools { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; align-items: center; }
+.sw.busy { background: #9097a3; }
+.sw.mine { background: #16a06a; }
+.picker.is-pov .topbar .steps { display: none; }
 
 /* fallbacks: no WebGL / render error */
 .stage-fallback { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 84px 360px 104px 330px; text-align: center; }
@@ -666,7 +718,21 @@ kbd { font-family: var(--font); font-size: 12px; font-weight: 600; color: var(--
   .legend { justify-content: center; }
   .controls { justify-content: center; }
   .hint { display: none; }
-  .demo-mini { top: 66px; bottom: auto; right: 12px; }
+  /* seat picking: blocks under the top bar, the order as a bottom sheet */
+  .pick-panel { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 46svh; border-radius: 16px 16px 0 0; animation: sheet-up 0.45s var(--ease) both; }
+  .pick-head { grid-template-columns: 1fr auto; align-items: center; gap: 6px 12px; padding: 12px 14px 10px; }
+  .pick-head h1 { font-size: 24px; }
+  .pick-head p { display: none; }
+  .pick-head .view-switch button { padding: 0 8px; font-size: 12.5px; }
+  .pick-body { gap: 10px; padding: 10px 14px; }
+  .pick-foot { gap: 8px; padding: 0 14px calc(12px + env(safe-area-inset-bottom)); }
+  .picker .oa-total { padding-top: 8px; }
+  .picker .oa-total strong { font-size: 24px; }
+  .pick-body .btn { min-height: 38px; }
+  .picker .picked li { padding-block: 5px; }
+  .pick-dock { top: 62px; bottom: auto; left: 10px; right: 10px; }
+  .pick-tools .legend { padding: 6px 10px; gap: 4px 12px; font-size: 12px; }
+  .pick-tools .controls { display: none; }
   .povbar { flex-direction: column; align-items: stretch; bottom: 12px; padding: 14px; }
   .pov-actions { flex-wrap: wrap; }
   .pov-actions .btn { flex: 1; }

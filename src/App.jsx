@@ -10,6 +10,7 @@ import GuidePage from './pages/GuidePage';
 import PlansPage from './pages/PlansPage';
 import { Footer } from './components/Chrome';
 import { MATCH_BY_ID, TEAMS } from './data/matches';
+import { webglAvailable } from './lib/webgl';
 import { useStore } from './store';
 
 const PAGES = {
@@ -43,6 +44,7 @@ export default function App() {
   const qty = useStore((s) => s.qty);
   const order = useStore((s) => s.order);
   const redirect = useStore((s) => s.redirect);
+  const seatView = useStore((s) => s.seatView);
 
   // guard against reaching a step without its prerequisites
   let current = view;
@@ -60,8 +62,13 @@ export default function App() {
   // before React renders, so the browser could still restore/keep the previous position)
   const screen = current === 'match' ? `match/${pageId}` : current;
   const shown = useRef(screen);
+  // the 3D screens take the whole window: no page scroll and no footer
+  const immersive = current === 'stadium' || (current === 'seats' && seatView === '3d' && webglAvailable());
   useLayoutEffect(() => {
-    document.body.classList.toggle('no-scroll', current === 'stadium');
+    document.body.classList.toggle('no-scroll', immersive);
+  }, [immersive]);
+
+  useLayoutEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
     const match = current === 'match' && MATCH_BY_ID[pageId];
     const title = match ? `${TEAMS[match.home].name} × ${TEAMS[match.away].name}` : TITLES[current];
@@ -78,7 +85,7 @@ export default function App() {
   return (
     <div className="app" data-view={current} key={screen}>
       <Page />
-      {current !== 'stadium' && <Footer />}
+      {!immersive && <Footer />}
     </div>
   );
 }

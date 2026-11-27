@@ -30,13 +30,14 @@ export const CLEAR_GLASS = 0.06;
 // ─────────────────────────────────────────────────────────────────
 // Sector: stepped concrete + instanced seats, selectable
 // ─────────────────────────────────────────────────────────────────
-function Sector({ sector, matchId, interactive, seatGeo, fullSeatGeo }) {
+function Sector({ sector, matchId, interactive, picking, background, seatGeo, fullSeatGeo }) {
   // boolean selectors: a sector re-renders only when its own state changes
-  const isSelected = useStore((s) => s.sectorId === sector.id);
+  // while seats are being chosen in this sector, SeatPicker draws its chairs instead
+  const isSelected = useStore((s) => s.sectorId === sector.id && !picking);
   const isHovered = useStore((s) => s.hoveredId === sector.id && s.sectorId !== sector.id);
   const dimOthers = useStore((s) => !!s.sectorId && s.sectorId !== sector.id);
   // seat view from a box: its own window sits between the camera and the pitch
-  const lookingThrough = useStore((s) => sector.tier === 'box' && s.cameraMode === 'pov' && s.sectorId === sector.id);
+  const lookingThrough = useStore((s) => sector.tier === 'box' && (picking || s.cameraMode === 'pov') && s.sectorId === sector.id);
   const status = sectorStatus(matchId, sector.id);
   const layout = seatLayout(sector);
   const seatsRef = useRef();
@@ -92,8 +93,9 @@ function Sector({ sector, matchId, interactive, seatGeo, fullSeatGeo }) {
       targetStandEm.setRGB(0.05, 0.07, 0.1);
     } else {
       targetSeat.copy(base);
-      if (dimOthers) targetSeat.lerp(PALETTE.unavailable, 0.45);
-      targetEmissive.copy(base).multiplyScalar(status.soldOut ? 0 : 0.08);
+      // while choosing seats the neighbours fade further: their colours must not read as free seats
+      if (dimOthers) targetSeat.lerp(PALETTE.unavailable, background ? 0.88 : 0.45);
+      targetEmissive.copy(base).multiplyScalar(status.soldOut || background ? 0 : 0.08);
       targetStandEm.setRGB(0, 0, 0);
     }
     if (seatMat.current) {
@@ -158,6 +160,7 @@ function Sector({ sector, matchId, interactive, seatGeo, fullSeatGeo }) {
           args={[fullSeatGeo, undefined, layout.capacity]}
           geometry={seatGeo}
           userData={{ fullGeometry: fullSeatGeo }}
+          visible={!picking}
           raycast={noRaycast}
         >
           <meshLambertMaterial ref={seatMat} color={base} />
@@ -475,8 +478,10 @@ function CompassLabels() {
   ));
 }
 
-export default function Stadium({ matchId, interactive = false }) {
+export default function Stadium({ matchId, interactive = false, picking = null }) {
   const roof = useStore((s) => s.roof);
+  // the roof would hide the seats being chosen; it comes back in the view from a seat
+  const roofOff = useStore((s) => !!picking && s.cameraMode !== 'pov');
   const cameraMode = useStore((s) => s.cameraMode);
   const fullSeatGeo = useMemo(() => makeSeatGeometry(), []);
   const farSeatGeo = useMemo(() => makeFarSeatGeometry(), []);
@@ -500,9 +505,9 @@ export default function Stadium({ matchId, interactive = false }) {
       <Ground />
       <Pitch />
       {SECTORS.map((s) => (
-        <Sector key={s.id} sector={s} matchId={matchId} interactive={interactive} seatGeo={near ? fullSeatGeo : farSeatGeo} fullSeatGeo={fullSeatGeo} />
+        <Sector key={s.id} sector={s} matchId={matchId} interactive={interactive && !picking} picking={picking === s.id} background={!!picking && picking !== s.id} seatGeo={near ? fullSeatGeo : farSeatGeo} fullSeatGeo={fullSeatGeo} />
       ))}
-      <Structure showRoof={interactive ? roof : true} />
+      <Structure showRoof={interactive ? roof && !roofOff : true} />
       {interactive && cameraMode === 'overview' && <CompassLabels />}
     </group>
   );

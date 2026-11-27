@@ -1,12 +1,13 @@
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import ErrorBoundary from '../components/ErrorBoundary';
 import { webglAvailable } from '../lib/webgl';
-import Crest from '../components/Crest';
 import MiniMap from '../components/MiniMap';
 import { Logo, Steps } from '../components/Chrome';
-import { SECTORS, SECTOR_BY_ID } from '../data/sectors';
-import { MATCH_BY_ID, TEAMS, sectorStatus } from '../data/matches';
-import { fmtShort, fmtTime, money } from '../lib/format';
+import Matchbar from '../components/Matchbar';
+import { SECTORS, SECTOR_BY_ID, seatLayout } from '../data/sectors';
+import { MATCH_BY_ID, sectorStatus } from '../data/matches';
+import { GATES_OPEN_MS, gateFor } from '../data/content';
+import { fmtTime, money } from '../lib/format';
 import { useStore } from '../store';
 
 // three.js is downloaded only when a 3D view is needed; a new lazy() allows retrying a failed download
@@ -33,55 +34,54 @@ function AvailBar({ st }) {
   );
 }
 
-function MatchBar({ match }) {
-  const home = TEAMS[match.home];
-  const away = TEAMS[match.away];
-  return (
-    <div className="matchbar">
-      <Crest team={home} size={26} />
-      <span className="mb-names">
-        <b>{home.short}</b> × <b>{away.short}</b>
-      </span>
-      <Crest team={away} size={26} />
-      <span className="mb-date">
-        {fmtShort(match.date)} às {fmtTime(match.date)}
-      </span>
-    </div>
-  );
-}
+const toneOf = (st) => (st.soldOut ? 'off' : st.ratio < 0.15 ? 'low' : st.ratio < 0.45 ? 'mid' : 'ok');
 
 function SectorList({ matchId, onPick }) {
   const sectorId = useStore((s) => s.sectorId);
   const hoveredId = useStore((s) => s.hoveredId);
   const setHovered = useStore((s) => s.setHovered);
-  const groups = ['lower', 'box', 'upper'];
+  const [byPrice, setByPrice] = useState(false);
+  // by tier, or a single list from the cheapest, with sold-out sectors last
+  const rank = (s) => {
+    const st = sectorStatus(matchId, s.id);
+    return st.soldOut ? Infinity : st.price;
+  };
+  const groups = byPrice
+    ? [['Do mais barato ao mais caro', [...SECTORS].sort((a, b) => rank(a) - rank(b))]]
+    : ['lower', 'box', 'upper'].map((tier) => [TIER_LABEL[tier], SECTORS.filter((s) => s.tier === tier)]);
   return (
-    <div className="sector-list">
-      {groups.map((g) => (
-        <div key={g} className="sl-group">
-          <h4>{TIER_LABEL[g]}</h4>
-          {SECTORS.filter((s) => s.tier === g).map((s) => {
-            const st = sectorStatus(matchId, s.id);
-            return (
-              <button
-                key={s.id}
-                className={`sl-item ${sectorId === s.id ? 'is-active' : ''} ${hoveredId === s.id ? 'is-hover' : ''} ${st.soldOut ? 'is-off' : ''}`}
-                onClick={() => onPick(s.id)}
-                onMouseEnter={() => setHovered(s.id)}
-                onMouseLeave={() => setHovered(null)}
-              >
-                <span className={`sl-swatch ${st.soldOut ? 'off' : s.kind === 'vip' ? 'vip' : 'std'}`} />
-                <span className="sl-name">
-                  {s.name}
-                  <small>{availabilityLabel(st)}</small>
-                </span>
-                <span className="sl-price">{st.soldOut ? '—' : money(st.price)}</span>
-              </button>
-            );
-          })}
-        </div>
-      ))}
-    </div>
+    <>
+      <div className="view-switch lp-sort" role="group" aria-label="Ordenar setores">
+        <button aria-pressed={!byPrice} onClick={() => setByPrice(false)}>Por nível</button>
+        <button aria-pressed={byPrice} onClick={() => setByPrice(true)}>Por preço</button>
+      </div>
+      <div className="sector-list">
+        {groups.map(([title, sectors]) => (
+          <div key={title} className="sl-group">
+            <h4>{title}</h4>
+            {sectors.map((s) => {
+              const st = sectorStatus(matchId, s.id);
+              return (
+                <button
+                  key={s.id}
+                  className={`sl-item ${sectorId === s.id ? 'is-active' : ''} ${hoveredId === s.id ? 'is-hover' : ''} ${st.soldOut ? 'is-off' : ''}`}
+                  onClick={() => onPick(s.id)}
+                  onMouseEnter={() => setHovered(s.id)}
+                  onMouseLeave={() => setHovered(null)}
+                >
+                  <span className={`sl-swatch ${st.soldOut ? 'off' : s.kind === 'vip' ? 'vip' : 'std'}`} />
+                  <span className="sl-name">
+                    {s.name}
+                    <small className={`tone-${toneOf(st)}`}>{availabilityLabel(st)}</small>
+                  </span>
+                  <span className="sl-price">{st.soldOut ? '—' : money(st.price)}</span>
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -134,7 +134,7 @@ function SectorPanel({ matchId, sector, onClose, no3d }) {
       <div className="sp-head">
         <div>
           <span className="sp-kicker">
-            {TIER_LABEL[sector.tier]} · {sector.side}
+            {TIER_LABEL[sector.tier]}
             {sector.kind === 'vip' && <span className="tag tag-vip">VIP</span>}
             {sector.kind === 'visitor' && <span className="tag">Visitante</span>}
           </span>
@@ -165,8 +165,16 @@ function SectorPanel({ matchId, sector, onClose, no3d }) {
 
         <p className="sp-blurb">{sector.blurb}</p>
 
-        <div className="sp-map">
-          <MiniMap matchId={matchId} selectedId={sector.id} onSelect={selectSector} showCone />
+        <div className="sp-facts">
+          <div className="sp-map">
+            <MiniMap matchId={matchId} selectedId={sector.id} onSelect={selectSector} showCone />
+          </div>
+          <dl className="rows">
+            <div><dt>Portão</dt><dd>{gateFor(sector).id}</dd></div>
+            <div><dt>Abre às</dt><dd>{fmtTime(new Date(MATCH_BY_ID[matchId].date.getTime() - GATES_OPEN_MS))}</dd></div>
+            <div><dt>Filas</dt><dd>{seatLayout(sector).rows.length}</dd></div>
+            <div><dt>Lado</dt><dd>{sector.side}</dd></div>
+          </dl>
         </div>
 
         {st.soldOut && alternatives.length > 0 && (
@@ -204,7 +212,7 @@ function SectorPanel({ matchId, sector, onClose, no3d }) {
                 go('seats');
               }}
             >
-              Escolher assentos
+              {no3d ? 'Escolher assentos' : 'Escolher meu lugar'}
               <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
             </button>
           </>
@@ -429,7 +437,7 @@ export default function StadiumPage() {
           </button>
           <Logo onClick={() => go('home')} />
         </div>
-        <MatchBar match={match} />
+        <Matchbar match={match} />
         <Steps current={0} />
       </div>
 
@@ -437,7 +445,7 @@ export default function StadiumPage() {
         <div id="sector-list-panel" className={`list-panel ${listOpen ? 'is-open' : ''}`}>
           <div className="lp-head">
             <h3>Setores</h3>
-            <span className="lp-sub">Clique no estádio ou na lista</span>
+            <span className="lp-sub">Clique no estádio ou na lista. Preços fictícios.</span>
           </div>
           <SectorList matchId={matchId} onPick={pick} />
         </div>
@@ -466,8 +474,6 @@ export default function StadiumPage() {
           <span><kbd>Clique</kbd> em um setor</span>
         </div>
       )}
-
-      <div className="demo-mini">Demonstração · preços fictícios</div>
     </div>
   );
 }
