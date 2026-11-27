@@ -6,8 +6,6 @@ import Stadium from './Stadium';
 import { useStore } from '../store';
 import { SECTOR_BY_ID, framing, viewpoint } from '../data/sectors';
 import { prefersReducedMotion } from '../lib/motion';
-import { webglAvailable } from '../lib/webgl';
-import ErrorBoundary from '../components/ErrorBoundary';
 
 const glProps = { antialias: true, powerPreference: 'high-performance' };
 
@@ -264,17 +262,13 @@ function HeroOrbit() {
 }
 
 export function HeroCanvas({ matchId }) {
-  // decorative: without WebGL (or if the scene fails) the hero simply keeps its gradient background
-  if (!webglAvailable()) return null;
   return (
-    <ErrorBoundary fallback={null}>
-      <Canvas gl={glProps} dpr={[1, 1.5]} camera={{ position: [150, 80, 150], fov: 38, near: 0.5, far: 2500 }}>
-        <fog attach="fog" args={['#06080d', 260, 800]} />
-        <Suspense fallback={null}>
-          <Stadium matchId={matchId} />
-        </Suspense>
-        <HeroOrbit />
-      </Canvas>
-    </ErrorBoundary>
+    <Canvas gl={glProps} dpr={[1, 1.5]} camera={{ position: [150, 80, 150], fov: 38, near: 0.5, far: 2500 }}>
+      <fog attach="fog" args={['#06080d', 260, 800]} />
+      <Suspense fallback={null}>
+        <Stadium matchId={matchId} />
+      </Suspense>
+      <HeroOrbit />
+    </Canvas>
   );
 }

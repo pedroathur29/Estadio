@@ -56,6 +56,9 @@ export default function SeatsPage() {
   const blocks = Math.max(1, Math.ceil(maxLen / BLOCK));
   const [block, setBlock] = useState(() => Math.floor((blocks - 1) / 2));
   const selectedKeys = new Set(seats.map((s) => s.key));
+  // notice about a split suggestion; it only applies while that exact selection is kept
+  const [split, setSplit] = useState(null);
+  const splitText = split && split.keys === seats.map((s) => s.key).join() ? split.text : '';
   const maxQty = Math.min(6, st.available);
 
   const seatInfo = (r, i) => ({
@@ -65,41 +68,83 @@ export default function SeatsPage() {
     label: `Fila ${ROW_LETTERS[r]} · Assento ${i + 1}`,
   });
 
-  const suggest = () => {
-    // find `qty` adjacent free seats, preferring middle rows and the centre of the block
-    const rowsOrder = layout.rows
-      .map((_, r) => r)
-      .sort((a, b) => Math.abs(a - layout.rows.length * 0.4) - Math.abs(b - layout.rows.length * 0.4));
-    for (const b of [block, ...Array.from({ length: blocks }, (_, i) => i).filter((i) => i !== block)]) {
+  // first run of `size` adjacent free seats, searching the preferred block and rows first
+  const findRun = (size, used, nearBlock, nearRow) => {
+    const rowsOrder = layout.rows.map((_, r) => r).sort((a, b) => Math.abs(a - nearRow) - Math.abs(b - nearRow));
+    const blocksOrder = Array.from({ length: blocks }, (_, i) => i).sort((a, b) => Math.abs(a - nearBlock) - Math.abs(b - nearBlock));
+    for (const b of blocksOrder) {
       for (const r of rowsOrder) {
         const len = layout.rows[r].seats.length;
         const from = b * BLOCK;
         const to = Math.min(len, from + BLOCK);
         const centre = (from + to) / 2;
         const starts = [];
-        for (let i = from; i + qty <= to; i++) starts.push(i);
-        starts.sort((x, y) => Math.abs(x + qty / 2 - centre) - Math.abs(y + qty / 2 - centre));
+        for (let i = from; i + size <= to; i++) starts.push(i);
+        starts.sort((x, y) => Math.abs(x + size / 2 - centre) - Math.abs(y + size / 2 - centre));
         for (const s0 of starts) {
-          let ok = true;
-          for (let k = 0; k < qty; k++) if (taken.has(`${r}-${s0 + k}`)) ok = false;
-          if (ok) {
-            clearSeats();
-            for (let k = 0; k < qty; k++) toggleSeat(seatInfo(r, s0 + k));
-            setBlock(b);
-            return;
-          }
+          const keys = Array.from({ length: size }, (_, k) => `${r}-${s0 + k}`);
+          if (keys.every((key) => !taken.has(key) && !used.has(key))) return { b, r, s0, keys };
         }
       }
     }
+    return null;
+  };
+
+  const suggest = () => {
+    // prefer `qty` seats together (middle rows, centre of the block); when there is no such run,
+    // fall back to the largest groups available, each one as close as possible to the first
+    const used = new Set();
+    const picks = [];
+    const groups = [];
+    let nearBlock = block;
+    let nearRow = layout.rows.length * 0.4;
+    while (picks.length < qty) {
+      let run = null;
+      let size = qty - picks.length;
+      for (; size > 0; size--) {
+        run = findRun(size, used, nearBlock, nearRow);
+        if (run) break;
+      }
+      if (!run) break;
+      if (!groups.length) {
+        nearBlock = run.b;
+        nearRow = run.r;
+      }
+      groups.push(run);
+      run.keys.forEach((key, k) => {
+        used.add(key);
+        picks.push(seatInfo(run.r, run.s0 + k));
+      });
+    }
+    if (!picks.length) return;
+    clearSeats();
+    picks.forEach(toggleSeat);
+    setBlock(groups[0].b);
+    setSplit(
+      groups.length > 1
+        ? {
+            keys: picks.map((p) => p.key).join(),
+            text: `Não há ${qty} lugares juntos neste setor. Sugerimos ${groups.length} grupos separados${
+              groups.some((g) => g.b !== groups[0].b) ? ', em blocos diferentes' : ''
+            }.`,
+          }
+        : null,
+    );
   };
 
   const total = st.price * seats.length;
   const done = seats.length === qty;
+  // rendered twice (side panel and mobile bottom bar); CSS shows only one of them
+  const continueButton = (
+    <button className="btn btn-primary btn-block btn-continue" disabled={!done} onClick={() => go('summary')}>
+      {done ? 'Continuar para o resumo' : `Faltam ${qty - seats.length} assento${qty - seats.length > 1 ? 's' : ''}`}
+    </button>
+  );
 
   return (
     <>
       <Header />
-      <main className="flow wrap">
+      <main className="flow flow-seats wrap">
         <div className="flow-head">
           <button className="back-link" onClick={() => go('stadium')}>
             ← Voltar ao estádio
@@ -119,13 +164,14 @@ export default function SeatsPage() {
               </button>
             </div>
 
+            <p className="seat-notice" role="status">{splitText}</p>
+
             {blocks > 1 && (
-              <div className="blocks" role="tablist" aria-label="Blocos do setor">
+              <div className="blocks" role="group" aria-label="Blocos do setor">
                 {Array.from({ length: blocks }, (_, b) => (
                   <button
                     key={b}
-                    role="tab"
-                    aria-selected={block === b}
+                    aria-pressed={block === b}
                     className={block === b ? 'is-active' : ''}
                     onClick={() => setBlock(b)}
                   >
@@ -218,10 +264,18 @@ export default function SeatsPage() {
               <span>Subtotal</span>
               <strong>{money(total)}</strong>
             </div>
-            <button className="btn btn-primary btn-block" disabled={!done} onClick={() => go('summary')}>
-              {done ? 'Continuar para o resumo' : `Faltam ${qty - seats.length} assento${qty - seats.length > 1 ? 's' : ''}`}
-            </button>
+            {continueButton}
           </OrderAside>
+        </div>
+
+        <div className="seat-bar">
+          <div className="seat-bar-info">
+            <span>
+              {seats.length} de {qty} assento{qty > 1 ? 's' : ''}
+            </span>
+            <strong>{money(total)}</strong>
+          </div>
+          {continueButton}
         </div>
       </main>
     </>

@@ -43,6 +43,8 @@ button { font: inherit; color: inherit; cursor: pointer; background: none; borde
 button:disabled { cursor: not-allowed; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
 h1, h2, h3, h4 { margin: 0; font-weight: 700; letter-spacing: -0.01em; }
+/* headings receive focus only programmatically, after a screen change: no ring */
+h1[tabindex='-1']:focus { outline: none; }
 p { margin: 0; }
 img { display: block; max-width: 100%; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -216,6 +218,7 @@ img { display: block; max-width: 100%; }
 .stage canvas { display: block; }
 .stage-veil { position: absolute; inset: 0; background: var(--bg); pointer-events: none; transition: opacity 1.1s ease; }
 .stage-veil.is-gone { opacity: 0; }
+.stage-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 14px; color: var(--muted); }
 
 .topbar {
   position: absolute; top: 0; left: 0; right: 0; z-index: 10; display: flex; align-items: center; gap: 16px;
@@ -363,6 +366,8 @@ kbd { font-family: var(--font); font-size: 11.5px; font-weight: 600; color: var(
 .blocks button:hover { color: var(--text); }
 .blocks button.is-active { background: var(--text); color: var(--bg); border-color: var(--text); font-weight: 600; }
 .blocks .dot { position: absolute; top: 4px; right: 5px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.seat-notice { margin-bottom: 14px; padding: 10px 14px; border-radius: 12px; font-size: 13.5px; border: 1px solid rgba(200, 255, 46, 0.35); background: rgba(200, 255, 46, 0.08); }
+.seat-notice:empty { margin: 0; padding: 0; border: 0; }
 .pitch-edge { height: 34px; border-radius: 10px 10px 40% 40% / 10px 10px 100% 100%; background: linear-gradient(180deg, #24693a, #1a4f2b); display: grid; place-items: center; margin-bottom: 18px; }
 .pitch-edge span { font-size: 11px; font-weight: 700; letter-spacing: 0.3em; text-transform: uppercase; color: rgba(255, 255, 255, 0.75); }
 .seatmap-scroll { overflow-x: auto; padding-bottom: 6px; }
@@ -470,7 +475,7 @@ kbd { font-family: var(--font); font-size: 11.5px; font-weight: 600; color: var(
 @media (max-width: 960px) {
   .stadium-grid { grid-template-columns: 1fr; gap: 40px; }
   .how { grid-template-columns: repeat(2, 1fr); }
-  .flow-grid { grid-template-columns: 1fr; }
+  .flow-grid { grid-template-columns: minmax(0, 1fr); }
   .order-aside { position: static; }
   .pay-options { grid-template-columns: 1fr; }
 }
@@ -536,7 +541,26 @@ kbd { font-family: var(--font); font-size: 11.5px; font-weight: 600; color: var(
   .tk-stub::before { left: -10px; }
   .tk-stub::after { left: auto; right: -10px; }
   .controls button span { display: none; }
+  /* only the current step keeps its label; the others stay readable to screen readers */
+  .flow-head .steps li:not(.active) { padding-inline: 2px; }
+  .flow-head .steps li:not(.active) .t { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .demo-notice { left: 12px; right: 12px; bottom: 12px; text-align: center; border-radius: 12px; }
+}
+
+/* ── Seat page on one column: the continue button stays at the bottom ── */
+.seat-bar { display: none; }
+@media (max-width: 960px) {
+  .flow-seats { padding-bottom: 0; }
+  .flow-seats .order-aside .btn-continue { display: none; }
+  .seat-bar {
+    display: flex; align-items: center; gap: 14px; position: sticky; bottom: 0; z-index: 20; margin: 16px -16px 0;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); background: rgba(12, 15, 22, 0.94); border-top: 1px solid var(--line); backdrop-filter: blur(14px);
+  }
+  .seat-bar-info { display: grid; flex: none; font-size: 12px; color: var(--muted); }
+  .seat-bar-info strong { font-family: var(--font-display); font-size: 22px; color: var(--text); font-variant-numeric: tabular-nums; }
+  .seat-bar .btn { flex: 1; min-width: 0; }
+  /* the floating notice would cover the bar: it goes to the end of the page instead */
+  .app[data-view='seats'] .demo-notice { position: static; max-width: none; margin: 16px; text-align: center; }
 }
 
 @media (prefers-reduced-motion: reduce) {

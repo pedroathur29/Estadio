@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import { HeroCanvas } from '../three/StadiumCanvas';
+import { HeroCanvas } from '../components/LazyStadium';
+import ErrorBoundary from '../components/ErrorBoundary';
+import { webglAvailable } from '../lib/webgl';
 import Crest from '../components/Crest';
 import MiniMap from '../components/MiniMap';
 import { Header } from '../components/Chrome';
@@ -49,7 +51,12 @@ function Hero() {
   return (
     <section className="hero">
       <div className="hero-canvas" aria-hidden="true">
-        <HeroCanvas matchId={m.id} />
+        {/* decorative: without WebGL (or if it fails) the hero simply keeps its gradient background */}
+        {webglAvailable() && (
+          <ErrorBoundary fallback={null}>
+            <HeroCanvas matchId={m.id} />
+          </ErrorBoundary>
+        )}
       </div>
       <div className="hero-shade" />
       <div className="wrap hero-content">

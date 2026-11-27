@@ -3,6 +3,7 @@ import { OrderAside } from './SeatsPage';
 import { SECTOR_BY_ID } from '../data/sectors';
 import { MATCH_BY_ID, TEAMS, sectorStatus } from '../data/matches';
 import { fmtLong, fmtTime, money } from '../lib/format';
+import { onRadioKeys } from '../lib/radio';
 import { useStore } from '../store';
 
 export const FEE_RATE = 0.1;
@@ -73,12 +74,13 @@ export default function SummaryPage() {
                       <span>{l.label}</span>
                     </div>
                   </div>
-                  <div className="seg" role="radiogroup" aria-label={`Tipo do ingresso ${l.label}`}>
+                  <div className="seg" role="radiogroup" aria-label={`Tipo do ingresso ${l.label}`} onKeyDown={onRadioKeys}>
                     {['inteira', 'meia'].map((t) => (
                       <button
                         key={t}
                         role="radio"
                         aria-checked={l.type === t}
+                        tabIndex={l.type === t ? 0 : -1}
                         className={l.type === t ? 'is-active' : ''}
                         onClick={() => setTicketType(l.key, t)}
                       >
@@ -92,12 +94,13 @@ export default function SummaryPage() {
             </ul>
 
             <h2 className="h-small">Forma de pagamento (simulada)</h2>
-            <div className="pay-options" role="radiogroup" aria-label="Forma de pagamento simulada">
+            <div className="pay-options" role="radiogroup" aria-label="Forma de pagamento simulada" onKeyDown={onRadioKeys}>
               {PAYMENTS.map((p) => (
                 <button
                   key={p.id}
                   role="radio"
                   aria-checked={payment === p.id}
+                  tabIndex={payment === p.id ? 0 : -1}
                   className={`pay ${payment === p.id ? 'is-active' : ''}`}
                   onClick={() => setPayment(p.id)}
                 >

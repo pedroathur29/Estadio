@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ExplorerCanvas } from '../three/StadiumCanvas';
+import { ExplorerCanvas, stadiumLoadFailed } from '../components/LazyStadium';
 import ErrorBoundary from '../components/ErrorBoundary';
 import { webglAvailable } from '../lib/webgl';
 import Crest from '../components/Crest';
@@ -327,6 +327,8 @@ export default function StadiumPage() {
     setNo3d(true);
   }, []);
   const retry3d = useCallback(() => {
+    // the purchase and the screen survive a reload, so it is safe
+    if (stadiumLoadFailed()) return window.location.reload();
     useStore.getState().setCameraMode(useStore.getState().sectorId ? 'sector' : 'overview');
     setNo3d(false);
   }, []);
@@ -380,6 +382,8 @@ export default function StadiumPage() {
         {!pov && !no3d && <Tooltip matchId={matchId} pos={pos} />}
         <div className={`stage-veil ${ready ? 'is-gone' : ''}`} />
       </div>
+
+      <h1 className="sr-only">Escolha o setor no estádio</h1>
 
       <div className="topbar">
         <div className="tb-left">

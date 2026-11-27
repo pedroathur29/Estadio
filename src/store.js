@@ -1,12 +1,15 @@
 import { create } from 'zustand';
-import { FEATURED } from './data/matches';
+import { createJSONStorage, persist } from 'zustand/middleware';
+import { FEATURED, MATCH_BY_ID } from './data/matches';
+import { SECTOR_BY_ID } from './data/sectors';
+import { replaceUrl, syncHistory, viewFromUrl } from './lib/history';
 
 // 'instant' ignores the CSS `scroll-behavior: smooth`, so a new screen starts at the top at once
 const scrollTop = () => window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
 
-export const useStore = create((set, get) => ({
+const createStore = (set, get) => ({
   // navigation: home | stadium | seats | summary | confirm
-  view: 'home',
+  view: viewFromUrl(),
   matchId: FEATURED.id,
 
   // stadium explorer
@@ -27,8 +30,13 @@ export const useStore = create((set, get) => ({
   order: null,
 
   go(view) {
-    set({ view });
+    // heading to the seat map on purpose starts a new purchase
+    set(view === 'seats' ? { view, order: null } : { view });
     scrollTop();
+  },
+  redirect(view) {
+    replaceUrl(view);
+    set({ view });
   },
   openMatch(matchId) {
     set({ matchId, view: 'stadium', sectorId: null, cameraMode: 'overview', seats: [], ticketTypes: {}, qty: 2, resetTick: get().resetTick + 1 });
@@ -92,11 +100,28 @@ export const useStore = create((set, get) => ({
     set({ payment });
   },
   placeOrder(order) {
-    set({ order, view: 'confirm' });
+    set({ order, view: 'confirm', seats: [], ticketTypes: {} });
     scrollTop();
   },
   restart() {
     set({ view: 'home', sectorId: null, seats: [], ticketTypes: {}, order: null, cameraMode: 'overview' });
     scrollTop();
   },
-}));
+});
+
+export const useStore = create(
+  persist(createStore, {
+    // the purchase survives a reload and is discarded when the tab is closed
+    name: 'arena-pass',
+    storage: createJSONStorage(() => window.sessionStorage),
+    partialize: ({ matchId, sectorId, qty, seats, ticketTypes, payment, order }) => ({ matchId, sectorId, qty, seats, ticketTypes, payment, order }),
+    merge: (saved, current) => {
+      if (!saved || !MATCH_BY_ID[saved.matchId] || (saved.sectorId && !SECTOR_BY_ID[saved.sectorId])) return current;
+      const state = { ...current, ...saved };
+      // field views are not saved: ask for the selected sector's one again
+      return state.sectorId ? { ...state, cameraMode: 'sector', captureId: state.sectorId } : state;
+    },
+  }),
+);
+
+syncHistory(useStore);
