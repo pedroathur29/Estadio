@@ -9,7 +9,7 @@ import { SECTORS, seatLayout } from '../data/sectors';
 import { sectorStatus } from '../data/matches';
 import { useStore } from '../store';
 import { prefersReducedMotion } from '../lib/motion';
-import { sweepProfile, makeSeatGeometry, ringPlacements } from './builders';
+import { sweepProfile, makeSeatGeometry, makeFarSeatGeometry, ringPlacements } from './builders';
 import { makePitchTexture, makeRibbonTexture, makeLabelTexture, FIELD_W, FIELD_D } from './textures';
 
 export const PALETTE = {
@@ -24,12 +24,19 @@ export const PALETTE = {
 
 const noRaycast = () => null;
 
+/** Opacity of a box window when the camera looks out from behind it. */
+export const CLEAR_GLASS = 0.06;
+
 // ─────────────────────────────────────────────────────────────────
 // Sector: stepped concrete + instanced seats, selectable
 // ─────────────────────────────────────────────────────────────────
-function Sector({ sector, matchId, interactive, seatGeo }) {
-  const selectedId = useStore((s) => s.sectorId);
-  const hoveredId = useStore((s) => s.hoveredId);
+function Sector({ sector, matchId, interactive, seatGeo, fullSeatGeo }) {
+  // boolean selectors: a sector re-renders only when its own state changes
+  const isSelected = useStore((s) => s.sectorId === sector.id);
+  const isHovered = useStore((s) => s.hoveredId === sector.id && s.sectorId !== sector.id);
+  const dimOthers = useStore((s) => !!s.sectorId && s.sectorId !== sector.id);
+  // seat view from a box: its own window sits between the camera and the pitch
+  const lookingThrough = useStore((s) => sector.tier === 'box' && s.cameraMode === 'pov' && s.sectorId === sector.id);
   const status = sectorStatus(matchId, sector.id);
   const layout = seatLayout(sector);
   const seatsRef = useRef();
@@ -67,17 +74,14 @@ function Sector({ sector, matchId, interactive, seatGeo }) {
     mesh.computeBoundingSphere();
   }, [layout]);
 
-  const isSelected = selectedId === sector.id;
-  const isHovered = hoveredId === sector.id && !isSelected;
   const base = status.soldOut ? PALETTE.unavailable : sector.kind === 'vip' ? PALETTE.vip : PALETTE.available;
-  const dimOthers = selectedId && !isSelected;
 
   const targetSeat = useMemo(() => new THREE.Color(), []);
   const targetEmissive = useMemo(() => new THREE.Color(), []);
   const targetStandEm = useMemo(() => new THREE.Color(), []);
 
   useFrame((_, dt) => {
-    const k = 1 - Math.exp(-dt * 9);
+    const k = 1 - Math.exp(-Math.min(dt, 0.05) * 9);
     if (isSelected) {
       targetSeat.copy(PALETTE.selected);
       targetEmissive.copy(PALETTE.selected).multiplyScalar(0.55);
@@ -100,6 +104,7 @@ function Sector({ sector, matchId, interactive, seatGeo }) {
       if (sector.tier === 'box') {
         const glassEm = isSelected ? PALETTE.selected : isHovered ? PALETTE.hover : status.soldOut ? PALETTE.unavailable : PALETTE.vip;
         targetStandEm.copy(glassEm).multiplyScalar(isSelected ? 0.8 : status.soldOut ? 0.15 : 0.45);
+        if (lookingThrough) targetStandEm.setRGB(0, 0, 0);
       }
       standMat.current.emissive.lerp(targetStandEm, k);
     }
@@ -126,7 +131,7 @@ function Sector({ sector, matchId, interactive, seatGeo }) {
 
   return (
     <group>
-      <mesh geometry={standGeo} {...handlers}>
+      <mesh geometry={standGeo} userData={sector.tier === 'box' ? { windowOf: sector.id } : {}} {...handlers}>
         {sector.tier === 'box' ? (
           <meshStandardMaterial
             ref={standMat}
@@ -134,7 +139,8 @@ function Sector({ sector, matchId, interactive, seatGeo }) {
             roughness={0.1}
             metalness={0.6}
             transparent
-            opacity={0.88}
+            opacity={lookingThrough ? CLEAR_GLASS : 0.88}
+            depthWrite={!lookingThrough}
             side={THREE.DoubleSide}
           />
         ) : (
@@ -149,11 +155,12 @@ function Sector({ sector, matchId, interactive, seatGeo }) {
       {layout.capacity > 0 && (
         <instancedMesh
           ref={seatsRef}
-          args={[seatGeo, undefined, layout.capacity]}
+          args={[fullSeatGeo, undefined, layout.capacity]}
+          geometry={seatGeo}
+          userData={{ fullGeometry: fullSeatGeo }}
           raycast={noRaycast}
-          frustumCulled={false}
         >
-          <meshStandardMaterial ref={seatMat} color={base} roughness={0.55} metalness={0.05} />
+          <meshLambertMaterial ref={seatMat} color={base} />
         </instancedMesh>
       )}
     </group>
@@ -233,6 +240,7 @@ function Dugout({ x }) {
 function Structure({ showRoof }) {
   const ribbonTex = useMemo(() => makeRibbonTexture(), []);
   const [, force] = useState(0);
+  const invalidate = useThree((s) => s.invalidate);
   useEffect(() => {
     // redraw canvas textures once web fonts are ready
     document.fonts?.ready.then(() => {
@@ -240,19 +248,20 @@ function Structure({ showRoof }) {
       ribbonTex.image = fresh.image;
       ribbonTex.needsUpdate = true;
       force((n) => n + 1);
+      invalidate(); // needed when the canvas only renders on demand
     });
-  }, [ribbonTex]);
+  }, [ribbonTex, invalidate]);
 
   const { camera } = useThree();
   const roofMat = useRef();
   useFrame((_, dt) => {
-    if (!prefersReducedMotion()) ribbonTex.offset.x -= dt * 0.035;
+    if (!prefersReducedMotion()) ribbonTex.offset.x -= Math.min(dt, 0.1) * 0.035;
     // seen from under the roof, fade it and hide the trusses so the stands stay readable
     const above = camera.position.y > ROOF_H + 1.5;
     if (trussRef.current) trussRef.current.visible = above;
     if (roofMat.current) {
       const target = above ? 0.55 : 0.18;
-      roofMat.current.opacity += (target - roofMat.current.opacity) * Math.min(1, dt * 6);
+      roofMat.current.opacity += (target - roofMat.current.opacity) * Math.min(1, Math.min(dt, 0.05) * 6);
     }
   });
 
@@ -400,20 +409,27 @@ function Structure({ showRoof }) {
   );
 }
 
+/**
+ * The flat layers under the pitch sit only centimetres apart. Pushing the lower ones back in the
+ * depth buffer (the higher the number, the lower the layer) keeps their order at any distance,
+ * including the seat view, where the near plane has to be small.
+ */
+const underlay = (layer) => ({ polygonOffset: true, polygonOffsetFactor: layer, polygonOffsetUnits: layer * 4 });
+
 function Ground() {
   return (
     <group>
       <mesh rotation-x={-Math.PI / 2} position-y={-0.02} raycast={noRaycast}>
         <circleGeometry args={[520, 64]} />
-        <meshStandardMaterial color="#0a0d13" roughness={1} />
+        <meshStandardMaterial color="#0a0d13" roughness={1} {...underlay(3)} />
       </mesh>
       <mesh rotation-x={-Math.PI / 2} position-y={-0.01} raycast={noRaycast}>
         <ringGeometry args={[95, 112, 96]} />
-        <meshStandardMaterial color="#151a23" roughness={0.9} />
+        <meshStandardMaterial color="#151a23" roughness={0.9} {...underlay(2)} />
       </mesh>
       <mesh rotation-x={-Math.PI / 2} position-y={0} raycast={noRaycast}>
         <planeGeometry args={[HX * 2, HZ * 2]} />
-        <meshStandardMaterial color="#1f5a2b" roughness={1} />
+        <meshStandardMaterial color="#1f5a2b" roughness={1} {...underlay(1)} />
       </mesh>
     </group>
   );
@@ -462,7 +478,17 @@ function CompassLabels() {
 export default function Stadium({ matchId, interactive = false }) {
   const roof = useStore((s) => s.roof);
   const cameraMode = useStore((s) => s.cameraMode);
-  const seatGeo = useMemo(() => makeSeatGeometry(), []);
+  const fullSeatGeo = useMemo(() => makeSeatGeometry(), []);
+  const farSeatGeo = useMemo(() => makeFarSeatGeometry(), []);
+  // from far away (overview, home) a chair is a few pixels: draw the light version
+  const [near, setNear] = useState(false);
+  useFrame(({ camera, invalidate }) => {
+    const distance = camera.position.length();
+    if (near ? distance > 135 : distance < 115) {
+      setNear(!near);
+      invalidate();
+    }
+  });
   return (
     <group>
       <Sky />
@@ -474,7 +500,7 @@ export default function Stadium({ matchId, interactive = false }) {
       <Ground />
       <Pitch />
       {SECTORS.map((s) => (
-        <Sector key={s.id} sector={s} matchId={matchId} interactive={interactive} seatGeo={seatGeo} />
+        <Sector key={s.id} sector={s} matchId={matchId} interactive={interactive} seatGeo={near ? fullSeatGeo : farSeatGeo} fullSeatGeo={fullSeatGeo} />
       ))}
       <Structure showRoof={interactive ? roof : true} />
       {interactive && cameraMode === 'overview' && <CompassLabels />}

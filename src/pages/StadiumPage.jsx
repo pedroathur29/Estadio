@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ExplorerCanvas, stadiumLoadFailed } from '../components/LazyStadium';
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import ErrorBoundary from '../components/ErrorBoundary';
 import { webglAvailable } from '../lib/webgl';
 import Crest from '../components/Crest';
@@ -9,6 +8,9 @@ import { SECTORS, SECTOR_BY_ID } from '../data/sectors';
 import { MATCH_BY_ID, TEAMS, sectorStatus } from '../data/matches';
 import { fmtShort, fmtTime, money } from '../lib/format';
 import { useStore } from '../store';
+
+// three.js is downloaded only when a 3D view is needed; a new lazy() allows retrying a failed download
+const loadExplorer = () => lazy(() => import('../three/StadiumCanvas').then((m) => ({ default: m.ExplorerCanvas })));
 
 const TIER_LABEL = { lower: 'Anel inferior', box: 'Nível camarote', upper: 'Anel superior' };
 
@@ -229,14 +231,47 @@ function Stage3DFallback({ matchId, onRetry }) {
   );
 }
 
-function Tooltip({ matchId, pos }) {
+/** Follows the pointer by writing to the DOM, so moving the mouse does not re-render the page. */
+function Tooltip({ matchId, stageRef }) {
   const hoveredId = useStore((s) => s.hoveredId);
   const selectedId = useStore((s) => s.sectorId);
-  if (!hoveredId || !pos || hoveredId === selectedId) return null;
+  const ref = useRef(null);
+  const pos = useRef(null);
+  const place = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.visibility = pos.current ? 'visible' : 'hidden';
+    if (pos.current) el.style.transform = `translate(${pos.current.x + 16}px, ${pos.current.y + 16}px)`;
+  }, []);
+
+  useEffect(() => {
+    const stage = stageRef.current;
+    const move = (e) => {
+      const r = stage.getBoundingClientRect();
+      pos.current = { x: e.clientX - r.left, y: e.clientY - r.top };
+      place();
+    };
+    const leave = () => {
+      pos.current = null;
+      place();
+    };
+    stage.addEventListener('pointermove', move);
+    stage.addEventListener('pointerdown', move);
+    stage.addEventListener('pointerleave', leave);
+    return () => {
+      stage.removeEventListener('pointermove', move);
+      stage.removeEventListener('pointerdown', move);
+      stage.removeEventListener('pointerleave', leave);
+    };
+  }, [stageRef, place]);
+
+  useLayoutEffect(place);
+
+  if (!hoveredId || hoveredId === selectedId) return null;
   const s = SECTOR_BY_ID[hoveredId];
   const st = sectorStatus(matchId, s.id);
   return (
-    <div className="tooltip" style={{ transform: `translate(${pos.x + 16}px, ${pos.y + 16}px)` }}>
+    <div className="tooltip" ref={ref}>
       <strong>{s.name}</strong>
       <span>
         {st.soldOut ? 'Esgotado' : `${money(st.price)} · ${availabilityLabel(st).toLowerCase()}`}
@@ -316,7 +351,6 @@ export default function StadiumPage() {
   const go = useStore((s) => s.go);
   const match = MATCH_BY_ID[matchId];
   const sector = sectorId ? SECTOR_BY_ID[sectorId] : null;
-  const [pos, setPos] = useState(null);
   const [listOpen, setListOpen] = useState(false);
   const [hint, setHint] = useState(true);
   const [ready, setReady] = useState(false);
@@ -326,9 +360,9 @@ export default function StadiumPage() {
     if (useStore.getState().cameraMode === 'pov') useStore.getState().setCameraMode('sector');
     setNo3d(true);
   }, []);
+  const [Explorer, setExplorer] = useState(loadExplorer);
   const retry3d = useCallback(() => {
-    // the purchase and the screen survive a reload, so it is safe
-    if (stadiumLoadFailed()) return window.location.reload();
+    setExplorer(loadExplorer());
     useStore.getState().setCameraMode(useStore.getState().sectorId ? 'sector' : 'overview');
     setNo3d(false);
   }, []);
@@ -365,21 +399,24 @@ export default function StadiumPage() {
       <div
         className="stage"
         ref={stageRef}
-        onPointerMove={(e) => {
-          const r = stageRef.current.getBoundingClientRect();
-          setPos({ x: e.clientX - r.left, y: e.clientY - r.top });
-        }}
         onPointerDown={() => setHint(false)}
-        onPointerLeave={() => setPos(null)}
       >
         {no3d ? (
           <Stage3DFallback matchId={matchId} onRetry={retry3d} />
         ) : (
           <ErrorBoundary fallback={null} onError={lose3d}>
-            <ExplorerCanvas matchId={matchId} onContextLost={lose3d} />
+            <Suspense
+              fallback={
+                <div className="stage-loading" role="status">
+                  <span className="spinner" /> Carregando estádio 3D…
+                </div>
+              }
+            >
+              <Explorer matchId={matchId} onContextLost={lose3d} />
+            </Suspense>
           </ErrorBoundary>
         )}
-        {!pov && !no3d && <Tooltip matchId={matchId} pos={pos} />}
+        {!pov && !no3d && <Tooltip matchId={matchId} stageRef={stageRef} />}
         <div className={`stage-veil ${ready ? 'is-gone' : ''}`} />
       </div>
 
