@@ -54,8 +54,8 @@ export default function MiniMap({ matchId, selectedId, hoveredId, onSelect, onHo
           <rect x={-HZ} y={-HX} width={HZ * 2} height={HX * 2} rx="14" />
         </clipPath>
         <radialGradient id="mm-cone">
-          <stop offset="0" stopColor="#c8ff2e" stopOpacity="0.55" />
-          <stop offset="1" stopColor="#c8ff2e" stopOpacity="0" />
+          <stop offset="0" style={{ stopColor: 'var(--sel)' }} stopOpacity="0.55" />
+          <stop offset="1" style={{ stopColor: 'var(--sel)' }} stopOpacity="0" />
         </radialGradient>
       </defs>
       <rect x={-HZ} y={-HX} width={HZ * 2} height={HX * 2} rx="14" className="mm-grass" />

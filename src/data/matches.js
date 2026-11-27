@@ -22,27 +22,27 @@ function daysFromNow(days, hour, minute = 0) {
 
 export const MATCHES = [
   {
-    id: 'aur-tmp', home: 'aurora', away: 'tempesta', competition: 'Liga Nacional', round: 'Rodada 34 · Clássico',
+    id: 'aur-tmp', home: 'aurora', away: 'tempesta', competition: 'Liga Nacional', round: 'rodada 34, o clássico',
     date: daysFromNow(6, 21, 30), demand: 0.86, soldOut: ['sul-inf', 'norte-sup'], featured: true,
   },
   {
-    id: 'aur-lds', home: 'aurora', away: 'serra', competition: 'Copa Continental', round: 'Quartas de final · Ida',
+    id: 'aur-lds', home: 'aurora', away: 'serra', competition: 'Copa Continental', round: 'quartas de final, jogo de ida',
     date: daysFromNow(11, 19, 0), demand: 0.74, soldOut: ['camarotes'],
   },
   {
-    id: 'aur-atm', home: 'aurora', away: 'maritimo', competition: 'Liga Nacional', round: 'Rodada 35',
+    id: 'aur-atm', home: 'aurora', away: 'maritimo', competition: 'Liga Nacional', round: 'rodada 35',
     date: daysFromNow(15, 16, 0), demand: 0.48, soldOut: [],
   },
   {
-    id: 'aur-udn', home: 'aurora', away: 'unidos', competition: 'Copa do País', round: 'Semifinal',
+    id: 'aur-udn', home: 'aurora', away: 'unidos', competition: 'Copa do País', round: 'semifinal',
     date: daysFromNow(20, 21, 45), demand: 0.66, soldOut: ['canto-se'],
   },
   {
-    id: 'aur-imp', home: 'aurora', away: 'imperial', competition: 'Liga Nacional', round: 'Rodada 36',
+    id: 'aur-imp', home: 'aurora', away: 'imperial', competition: 'Liga Nacional', round: 'rodada 36',
     date: daysFromNow(27, 18, 30), demand: 0.42, soldOut: [],
   },
   {
-    id: 'aur-vul', home: 'aurora', away: 'vulcano', competition: 'Liga Nacional', round: 'Rodada 38 · Última rodada',
+    id: 'aur-vul', home: 'aurora', away: 'vulcano', competition: 'Liga Nacional', round: 'rodada 38, a última',
     date: daysFromNow(34, 16, 0), demand: 0.92, soldOut: ['sul-inf', 'vip-prime', 'norte-inf'],
   },
 ];
@@ -79,6 +79,15 @@ export function sectorStatus(matchId, sectorId) {
 
 export function minPrice(matchId) {
   return Math.min(...SECTORS.filter((s) => !sectorStatus(matchId, s.id).soldOut).map((s) => sectorStatus(matchId, s.id).price));
+}
+
+/** How full a match is, summed over every sector. */
+export function matchAvailability(matchId) {
+  const all = SECTORS.map((s) => sectorStatus(matchId, s.id));
+  const ratio = all.reduce((n, s) => n + s.available, 0) / all.reduce((n, s) => n + s.capacity, 0);
+  if (ratio < 0.15) return { ratio, tone: 'low', label: 'Últimos lugares' };
+  if (ratio < 0.4) return { ratio, tone: 'mid', label: 'Procura alta' };
+  return { ratio, tone: 'ok', label: 'Bastante lugar' };
 }
 
 export function totalCapacity() {

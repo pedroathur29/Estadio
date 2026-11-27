@@ -3,12 +3,16 @@ import { OrderAside } from './SeatsPage';
 import { SECTOR_BY_ID } from '../data/sectors';
 import { MATCH_BY_ID, TEAMS, sectorStatus } from '../data/matches';
 import { fmtLong, fmtTime, money } from '../lib/format';
+import { PLAN_BY_ID } from '../data/content';
 import { onRadioKeys } from '../lib/radio';
+import { useAccount } from '../account';
 import { useStore } from '../store';
 
 export const FEE_RATE = 0.1;
 
-export function computeTotals(matchId, sectorId, seats, ticketTypes) {
+const cents = (v) => Math.round(v * 100) / 100;
+
+export function computeTotals(matchId, sectorId, seats, ticketTypes, planId) {
   const { price } = sectorStatus(matchId, sectorId);
   const lines = seats.map((s) => {
     const type = ticketTypes[s.key] || 'inteira';
@@ -16,8 +20,11 @@ export function computeTotals(matchId, sectorId, seats, ticketTypes) {
     return { ...s, type, value };
   });
   const subtotal = lines.reduce((n, l) => n + l.value, 0);
-  const fee = Math.round(subtotal * FEE_RATE * 100) / 100;
-  return { lines, subtotal, fee, total: subtotal + fee };
+  // the member discount covers one full-price ticket and does not stack with the half price
+  const plan = PLAN_BY_ID[planId];
+  const discount = plan && lines.some((l) => l.type === 'inteira') ? cents(price * plan.off) : 0;
+  const fee = plan?.noFee ? 0 : cents((subtotal - discount) * FEE_RATE);
+  return { lines, subtotal, discount, fee, total: cents(subtotal - discount + fee) };
 }
 
 const PAYMENTS = [
@@ -38,11 +45,17 @@ export default function SummaryPage() {
   const placeOrder = useStore((s) => s.placeOrder);
   const m = MATCH_BY_ID[matchId];
   const sector = SECTOR_BY_ID[sectorId];
-  const { lines, subtotal, fee, total } = computeTotals(matchId, sectorId, seats, ticketTypes);
+  const planId = useAccount((s) => s.plan);
+  const addOrder = useAccount((s) => s.addOrder);
+  const plan = PLAN_BY_ID[planId];
+  const { lines, subtotal, discount, fee, total } = computeTotals(matchId, sectorId, seats, ticketTypes, planId);
 
   const confirm = () => {
     const code = `AP-${Math.random().toString(36).slice(2, 6).toUpperCase()}-${String(Date.now()).slice(-4)}`;
-    placeOrder({ code, lines, subtotal, fee, total, payment, matchId, sectorId, at: new Date() });
+    // the match date is saved with the order: demo dates move along with today
+    const order = { code, lines, subtotal, discount, fee, total, payment, matchId, sectorId, matchDate: m.date.toISOString() };
+    addOrder(order);
+    placeOrder(order);
   };
 
   return (
@@ -51,17 +64,16 @@ export default function SummaryPage() {
       <main className="flow wrap">
         <div className="flow-head">
           <button className="back-link" onClick={() => go('seats')}>
-            ← Alterar assentos
+            Alterar assentos
           </button>
           <Steps current={2} />
         </div>
 
         <div className="flow-grid">
           <section className="summary-card">
-            <span className="kicker">Resumo do pedido</span>
             <h1>Confira seus ingressos</h1>
             <p className="muted">
-              {TEAMS[m.home].name} × {TEAMS[m.away].name} · {fmtLong(m.date)} às {fmtTime(m.date)}
+              {TEAMS[m.home].name} × {TEAMS[m.away].name}, {fmtLong(m.date)} às {fmtTime(m.date)}
             </p>
 
             <ul className="ticket-lines">
@@ -123,11 +135,22 @@ export default function SummaryPage() {
                 <span>{lines.length} ingresso{lines.length > 1 ? 's' : ''}</span>
                 <span>{money(subtotal)}</span>
               </div>
+              {discount > 0 && (
+                <div className="is-discount">
+                  <span>Sócio {plan.name} ({plan.off * 100}% em um ingresso)</span>
+                  <span>−{money(discount)}</span>
+                </div>
+              )}
               <div>
-                <span>Taxa de serviço (10%)</span>
-                <span>{money(fee)}</span>
+                <span>Taxa de serviço{plan?.noFee ? '' : ' (10%)'}</span>
+                <span>{plan?.noFee ? 'Isenta' : money(fee)}</span>
               </div>
             </div>
+            {!plan && (
+              <button className="link" onClick={() => go('plans')}>
+                Sócio paga menos. Ver planos
+              </button>
+            )}
             <div className="oa-total big">
               <span>Total</span>
               <strong>{money(total)}</strong>

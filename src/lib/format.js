@@ -9,8 +9,10 @@ const longDate = new Intl.DateTimeFormat('pt-BR', { weekday: 'long', day: '2-dig
 const clean = (s) => s.replace('.', '');
 
 export function fmtShort(date) {
-  return `${clean(weekday.format(date))} · ${clean(dayMonth.format(date))}`;
+  return `${clean(weekday.format(date))}, ${clean(dayMonth.format(date))}`;
 }
+
+export const fmtWeekday = (date) => clean(weekday.format(date));
 
 export function fmtLong(date) {
   const s = longDate.format(date);
@@ -26,5 +28,5 @@ export function fmtDay(date) {
 }
 
 export function fmtMonth(date) {
-  return clean(new Intl.DateTimeFormat('pt-BR', { month: 'short' }).format(date)).toUpperCase();
+  return clean(new Intl.DateTimeFormat('pt-BR', { month: 'short' }).format(date));
 }

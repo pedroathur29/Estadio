@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useAccount } from '../account';
 import { Header, Steps } from '../components/Chrome';
 import { SECTOR_BY_ID, seatLayout, ROW_LETTERS } from '../data/sectors';
 import { MATCH_BY_ID, TEAMS, sectorStatus, occupiedSeats } from '../data/matches';
@@ -24,7 +25,7 @@ export function OrderAside({ children, title = 'Seu pedido' }) {
             {TEAMS[m.home].name} × {TEAMS[m.away].name}
           </strong>
           <span>
-            {fmtShort(m.date)} · {fmtTime(m.date)} · Arena Horizonte
+            {fmtShort(m.date)} às {fmtTime(m.date)}, Arena Horizonte
           </span>
         </div>
       </div>
@@ -51,7 +52,15 @@ export default function SeatsPage() {
   const sector = SECTOR_BY_ID[sectorId];
   const st = sectorStatus(matchId, sectorId);
   const layout = seatLayout(sector);
-  const taken = useMemo(() => occupiedSeats(matchId, sectorId), [matchId, sectorId]);
+  const orders = useAccount((s) => s.orders);
+  // seats from this browser's own orders are shown apart and cannot be bought twice
+  const mine = useMemo(
+    () => new Set(orders.filter((o) => o.matchId === matchId && o.sectorId === sectorId).flatMap((o) => o.lines.map((l) => l.key))),
+    [orders, matchId, sectorId],
+  );
+  const taken = useMemo(() => new Set([...occupiedSeats(matchId, sectorId), ...mine]), [matchId, sectorId, mine]);
+  // roving tab stop: the whole map is one Tab entry, arrows move between free seats
+  const [cursor, setCursor] = useState(null);
   const maxLen = Math.max(...layout.rows.map((r) => r.seats.length));
   const blocks = Math.max(1, Math.ceil(maxLen / BLOCK));
   const [block, setBlock] = useState(() => Math.floor((blocks - 1) / 2));
@@ -132,6 +141,31 @@ export default function SeatsPage() {
     );
   };
 
+  // free seats of the block on screen, and the one that Tab lands on
+  const freeKeys = layout.rows.flatMap((row, r) =>
+    row.seats.map((_, i) => `${r}-${i}`).slice(block * BLOCK, (block + 1) * BLOCK).filter((key) => !taken.has(key)),
+  );
+  const tabKey = freeKeys.includes(cursor) ? cursor : (freeKeys.find((key) => selectedKeys.has(key)) ?? freeKeys[0]);
+
+  const onSeatKeys = (e) => {
+    const move = { ArrowLeft: [0, -1], ArrowRight: [0, 1], ArrowUp: [-1, 0], ArrowDown: [1, 0] }[e.key];
+    if (!move || !e.target.dataset.key) return;
+    e.preventDefault();
+    const [r, i] = e.target.dataset.key.split('-').map(Number);
+    const free = freeKeys.map((key) => key.split('-').map(Number));
+    let next;
+    if (move[1]) {
+      const inRow = free.filter(([fr, fi]) => fr === r && (fi - i) * move[1] > 0);
+      next = inRow.sort((a, b) => Math.abs(a[1] - i) - Math.abs(b[1] - i))[0];
+    } else {
+      // nearest row with a free seat, then the closest seat in it
+      next = free
+        .filter(([fr]) => (fr - r) * move[0] > 0)
+        .sort((a, b) => Math.abs(a[0] - r) - Math.abs(b[0] - r) || Math.abs(a[1] - i) - Math.abs(b[1] - i))[0];
+    }
+    if (next) e.currentTarget.querySelector(`[data-key="${next.join('-')}"]`)?.focus();
+  };
+
   const total = st.price * seats.length;
   const done = seats.length === qty;
   // rendered twice (side panel and mobile bottom bar); CSS shows only one of them
@@ -147,7 +181,7 @@ export default function SeatsPage() {
       <main className="flow flow-seats wrap">
         <div className="flow-head">
           <button className="back-link" onClick={() => go('stadium')}>
-            ← Voltar ao estádio
+            Voltar ao estádio
           </button>
           <Steps current={1} />
         </div>
@@ -156,8 +190,10 @@ export default function SeatsPage() {
           <section className="seat-card" aria-label="Mapa de assentos">
             <div className="seat-card-head">
               <div>
-                <span className="kicker">Escolha {qty === 1 ? 'seu assento' : `${qty} assentos`}</span>
                 <h1>{sector.name}</h1>
+                <p className="muted">
+                  Escolha {qty === 1 ? 'seu assento' : `${qty} assentos`}. No teclado, use as setas para andar pelo mapa.
+                </p>
               </div>
               <button className="btn btn-ghost" onClick={suggest}>
                 ✦ Sugerir melhores lugares
@@ -187,7 +223,7 @@ export default function SeatsPage() {
             </div>
 
             <div className="seatmap-scroll">
-              <div className="seatmap" style={{ '--cols': BLOCK }}>
+              <div className="seatmap" style={{ '--cols': BLOCK }} onKeyDown={onSeatKeys}>
                 {layout.rows.map((row, r) => {
                   const from = block * BLOCK;
                   const to = Math.min(row.seats.length, from + BLOCK);
@@ -199,11 +235,14 @@ export default function SeatsPage() {
                     cells.push(
                       <button
                         key={key}
-                        className={`seat ${sector.kind === 'vip' ? 'vip' : ''} ${isTaken ? 'taken' : ''} ${isSel ? 'sel' : ''}`}
+                        className={`seat ${sector.kind === 'vip' ? 'vip' : ''} ${isTaken ? 'taken' : ''} ${mine.has(key) ? 'mine' : ''} ${isSel ? 'sel' : ''}`}
                         disabled={isTaken}
                         aria-pressed={isSel}
-                        aria-label={`${seatInfo(r, i).label}${isTaken ? ', ocupado' : ''}`}
+                        aria-label={`${seatInfo(r, i).label}${mine.has(key) ? ', já é seu' : isTaken ? ', ocupado' : ''}`}
                         title={seatInfo(r, i).label}
+                        data-key={key}
+                        tabIndex={key === tabKey ? 0 : -1}
+                        onFocus={() => setCursor(key)}
                         onClick={() => toggleSeat(seatInfo(r, i))}
                       >
                         {isSel ? '✓' : ''}
@@ -225,8 +264,9 @@ export default function SeatsPage() {
               <span><i className={`seat-sw ${sector.kind === 'vip' ? 'vip' : ''}`} />Livre</span>
               <span><i className="seat-sw sel" />Selecionado</span>
               <span><i className="seat-sw taken" />Ocupado</span>
+              {mine.size > 0 && <span><i className="seat-sw mine" />Já é seu</span>}
               <span className="muted">
-                Assentos {block * BLOCK + 1}–{Math.min(maxLen, (block + 1) * BLOCK)} · Fila A mais próxima do gramado
+                Assentos {block * BLOCK + 1} a {Math.min(maxLen, (block + 1) * BLOCK)}. A fila A é a mais próxima do gramado.
               </span>
             </div>
           </section>

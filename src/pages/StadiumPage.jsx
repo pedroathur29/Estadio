@@ -44,7 +44,7 @@ function MatchBar({ match }) {
       </span>
       <Crest team={away} size={26} />
       <span className="mb-date">
-        {fmtShort(match.date)} · {fmtTime(match.date)}
+        {fmtShort(match.date)} às {fmtTime(match.date)}
       </span>
     </div>
   );

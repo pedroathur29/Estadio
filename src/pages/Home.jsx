@@ -1,258 +1,233 @@
 import { useEffect, useState } from 'react';
 import HeroStage from '../components/HeroStage';
 import Crest from '../components/Crest';
+import Fixture from '../components/Fixture';
 import MiniMap from '../components/MiniMap';
 import { Header } from '../components/Chrome';
-import { FEATURED, MATCHES, TEAMS, VENUE, minPrice, totalCapacity } from '../data/matches';
+import { FEATURED, MATCHES, TEAMS, VENUE, minPrice, sectorStatus, totalCapacity } from '../data/matches';
+import { PLANS } from '../data/content';
 import { SECTORS } from '../data/sectors';
-import { fmtLong, fmtTime, fmtDay, fmtMonth, fmtShort, money } from '../lib/format';
+import { fmtLong, fmtTime, money } from '../lib/format';
 import { useStore } from '../store';
 
-function useCountdown(date) {
+/** "Faltam 6 dias e 20 horas", refreshed once a minute. */
+function useTimeLeft(date) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
+    const t = setInterval(() => setNow(Date.now()), 60000);
     return () => clearInterval(t);
   }, []);
-  const diff = Math.max(0, date.getTime() - now);
-  return {
-    d: Math.floor(diff / 86400000),
-    h: Math.floor(diff / 3600000) % 24,
-    m: Math.floor(diff / 60000) % 60,
-    s: Math.floor(diff / 1000) % 60,
-  };
-}
-
-function Countdown({ date }) {
-  const c = useCountdown(date);
-  const cell = (v, l) => (
-    <div className="cd-cell">
-      <strong>{String(v).padStart(2, '0')}</strong>
-      <span>{l}</span>
-    </div>
-  );
-  return (
-    <div className="countdown" aria-label="Tempo até o início da partida">
-      {cell(c.d, 'dias')}
-      {cell(c.h, 'horas')}
-      {cell(c.m, 'min')}
-      {cell(c.s, 'seg')}
-    </div>
-  );
+  const minutes = Math.max(0, Math.floor((date.getTime() - now) / 60000));
+  const d = Math.floor(minutes / 1440);
+  const h = Math.floor(minutes / 60) % 24;
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  if (!minutes) return 'A bola já está rolando';
+  if (d) return `Faltam ${plural(d, 'dia')} e ${plural(h, 'hora')}`;
+  return `Faltam ${plural(h, 'hora')} e ${plural(minutes % 60, 'minuto')}`;
 }
 
 function Hero() {
   const openMatch = useStore((s) => s.openMatch);
+  const go = useStore((s) => s.go);
   const m = FEATURED;
   const home = TEAMS[m.home];
   const away = TEAMS[m.away];
+  const left = useTimeLeft(m.date);
   return (
-    <section className="hero">
+    <section className="hero night">
       <div className="hero-canvas" aria-hidden="true">
         <HeroStage matchId={m.id} />
       </div>
       <div className="hero-shade" />
       <div className="wrap hero-content">
-        <div className="eyebrow">
-          <span className="live-dot" /> {m.competition} · {m.round}
-        </div>
-        <h1 className="sr-only">{home.name} × {away.name} — ingressos</h1>
-        <div className="hero-teams">
-          <div className="hero-team">
-            <Crest team={home} size={84} />
-            <div>
-              <p className="team-name">{home.name}</p>
-              <span className="team-meta">Mandante · {home.city}</span>
-            </div>
-          </div>
-          <div className="versus">×</div>
-          <div className="hero-team">
-            <Crest team={away} size={84} />
-            <div>
-              <p className="team-name">{away.name}</p>
-              <span className="team-meta">Visitante · {away.city}</span>
-            </div>
-          </div>
-        </div>
-        <div className="hero-info">
-          <div>
-            <span className="label">Data</span>
-            <strong>{fmtLong(m.date)}</strong>
-          </div>
-          <div>
-            <span className="label">Horário</span>
-            <strong>{fmtTime(m.date)}</strong>
-          </div>
-          <div>
-            <span className="label">Local</span>
-            <strong>{VENUE.name}</strong>
-          </div>
-        </div>
-        <Countdown date={m.date} />
-        <div className="hero-cta">
-          <button className="btn btn-primary btn-lg" onClick={() => openMatch(m.id)}>
-            Escolher ingressos
-            <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-          </button>
-          <span className="from">
-            a partir de <b>{money(minPrice(m.id))}</b>
+        <h1 className="poster">
+          <span className="poster-team">
+            <Crest team={home} size={72} />
+            {home.name}
           </span>
+          <span className="poster-x">contra</span>
+          <span className="poster-team">
+            <Crest team={away} size={72} />
+            {away.name}
+          </span>
+        </h1>
+
+        <div className="hero-ticket">
+          <dl className="ht-info">
+            <div>
+              <dt>{m.competition}, {m.round}</dt>
+              <dd>{fmtLong(m.date)}</dd>
+            </div>
+            <div>
+              <dt>{VENUE.name}</dt>
+              <dd>{fmtTime(m.date)}</dd>
+            </div>
+          </dl>
+          <div className="ht-stub">
+            <span>a partir de <b>{money(minPrice(m.id))}</b></span>
+            <button className="btn btn-primary btn-lg" onClick={() => openMatch(m.id)}>
+              Comprar ingresso
+            </button>
+          </div>
         </div>
-      </div>
-      <div className="hero-hint" aria-hidden="true">
-        <span>Estádio renderizado em tempo real</span>
+
+        <p className="hero-left">
+          {left}. <button className="link" onClick={() => go('match', m.id)}>Ver preços por setor</button>
+        </p>
       </div>
     </section>
   );
 }
 
-function MatchCard({ m, index }) {
-  const openMatch = useStore((s) => s.openMatch);
-  const home = TEAMS[m.home];
-  const away = TEAMS[m.away];
-  const hot = m.demand > 0.8;
-  return (
-    <article className="match-card" style={{ '--i': index }}>
-      <div className="mc-date">
-        <strong>{fmtDay(m.date)}</strong>
-        <span>{fmtMonth(m.date)}</span>
-      </div>
-      <div className="mc-body">
-        <div className="mc-top">
-          <span className="mc-comp">{m.competition}</span>
-          {hot && <span className="tag tag-hot">Alta procura</span>}
-        </div>
-        <div className="mc-teams">
-          <div className="mc-team">
-            <Crest team={home} size={34} />
-            <span>{home.name}</span>
-          </div>
-          <div className="mc-team">
-            <Crest team={away} size={34} />
-            <span>{away.name}</span>
-          </div>
-        </div>
-        <div className="mc-meta">
-          {fmtShort(m.date)} · {fmtTime(m.date)} · {m.round}
-        </div>
-      </div>
-      <div className="mc-side">
-        <span className="mc-from">
-          a partir de <b>{money(minPrice(m.id))}</b>
-        </span>
-        <button className="btn btn-outline" onClick={() => openMatch(m.id)}>
-          Ingressos
-        </button>
-      </div>
-    </article>
-  );
-}
+const SORTS = {
+  date: { label: 'Data', compare: (a, b) => a.date - b.date },
+  price: { label: 'Menor preço', compare: (a, b) => minPrice(a.id) - minPrice(b.id) },
+};
 
-function Upcoming() {
+/** Lower case without accents, so "maritimo" finds "Marítimo". */
+const fold = (text) => text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+
+function Schedule() {
+  const [competition, setCompetition] = useState('');
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState('date');
+  const competitions = [...new Set(MATCHES.map((m) => m.competition))];
+  const list = MATCHES.filter((m) => {
+    const away = TEAMS[m.away];
+    return (!competition || m.competition === competition) && fold(`${away.name} ${away.city}`).includes(fold(query.trim()));
+  }).sort(SORTS[sort].compare);
+  const clear = () => {
+    setCompetition('');
+    setQuery('');
+  };
+
   return (
     <section id="jogos" className="section">
       <div className="wrap">
         <div className="section-head">
-          <div>
-            <span className="kicker">Agenda</span>
-            <h2>Próximos jogos na Arena</h2>
+          <h2>Jogos na Arena</h2>
+          <p>Todos com mando do Aurora FC.</p>
+        </div>
+
+        <div className="filters">
+          <div className="filter-tabs" role="group" aria-label="Filtrar por competição">
+            {['', ...competitions].map((c) => (
+              <button key={c} aria-pressed={competition === c} onClick={() => setCompetition(c)}>
+                {c || 'Todos'}
+              </button>
+            ))}
           </div>
-          <p className="section-sub">Escolha a partida, explore o estádio em 3D e veja o campo do seu lugar antes de comprar.</p>
+          <label className="field">
+            <span>Adversário ou cidade</span>
+            <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Ex.: Vulcano" />
+          </label>
+          <label className="field field-sort">
+            <span>Ordenar por</span>
+            <select value={sort} onChange={(e) => setSort(e.target.value)}>
+              {Object.entries(SORTS).map(([id, s]) => (
+                <option key={id} value={id}>{s.label}</option>
+              ))}
+            </select>
+          </label>
         </div>
-        <div className="match-list">
-          {MATCHES.map((m, i) => (
-            <MatchCard key={m.id} m={m} index={i} />
-          ))}
-        </div>
+
+        <p className="sr-only" role="status">
+          {list.length} {list.length === 1 ? 'jogo encontrado' : 'jogos encontrados'}
+        </p>
+
+        {list.length ? (
+          <div className="fixtures">
+            {list.map((m) => (
+              <Fixture key={m.id} match={m} />
+            ))}
+          </div>
+        ) : (
+          <div className="empty">
+            <h3>Nenhum jogo com esse filtro</h3>
+            <p>Confira o nome do adversário ou volte a ver a agenda inteira.</p>
+            <button className="btn btn-primary" onClick={clear}>Ver todos os jogos</button>
+          </div>
+        )}
       </div>
     </section>
   );
 }
 
-function StadiumSection() {
+function Arena() {
   const openMatch = useStore((s) => s.openMatch);
+  const selectSector = useStore((s) => s.selectSector);
   const [hovered, setHovered] = useState(null);
-  const cap = totalCapacity();
-  const hoveredSector = SECTORS.find((s) => s.id === hovered);
+  const sector = SECTORS.find((s) => s.id === hovered);
+  const st = sector && sectorStatus(FEATURED.id, sector.id);
+  const open = (id) => {
+    openMatch(FEATURED.id);
+    if (id) selectSector(id);
+  };
   return (
-    <section id="estadio" className="section section-alt">
-      <div className="wrap stadium-grid">
+    <section id="estadio" className="section section-paper">
+      <div className="wrap arena-grid">
         <div>
-          <span className="kicker">O estádio</span>
-          <h2>{VENUE.name}</h2>
+          <h2>Escolha de onde ver o jogo</h2>
           <p className="lead">
-            Dois anéis de arquibancada, camarotes entre os níveis e cobertura translúcida sobre todos os lugares.
-            Cada um dos {SECTORS.length} setores pode ser explorado em 3D, com preço, disponibilidade e a visão real do gramado.
+            A {VENUE.name} tem {totalCapacity().toLocaleString('pt-BR')} lugares cobertos em {SECTORS.length} setores. Toque
+            num setor do mapa para ver o campo dali antes de comprar.
           </p>
-          <dl className="stats">
+          <dl className="map-readout">
             <div>
-              <dt>Capacidade</dt>
-              <dd>{cap.toLocaleString('pt-BR')}</dd>
+              <dt>Setor</dt>
+              <dd>{sector ? sector.name : 'Passe o cursor sobre o mapa'}</dd>
             </div>
             <div>
-              <dt>Setores</dt>
-              <dd>{SECTORS.length}</dd>
-            </div>
-            <div>
-              <dt>Gramado</dt>
-              <dd>105×68 m</dd>
-            </div>
-            <div>
-              <dt>Inauguração</dt>
-              <dd>{VENUE.opened}</dd>
+              <dt>No clássico</dt>
+              <dd>{!sector ? '—' : st.soldOut ? 'Esgotado' : money(st.price)}</dd>
             </div>
           </dl>
-          <button className="btn btn-primary" onClick={() => openMatch(FEATURED.id)}>
-            Explorar em 3D
+          <button className="btn btn-dark" onClick={() => open()}>
+            Abrir o estádio em 3D
           </button>
         </div>
-        <div className="map-card">
-          <MiniMap matchId={null} hoveredId={hovered} onHover={setHovered} onSelect={() => openMatch(FEATURED.id)} />
-          <div className="map-caption">{hoveredSector ? `${hoveredSector.name} · ${hoveredSector.side}` : 'Passe o cursor sobre um setor'}</div>
-        </div>
+        <MiniMap matchId={FEATURED.id} hoveredId={hovered} onHover={setHovered} onSelect={open} />
       </div>
     </section>
   );
 }
 
-function HowItWorks() {
-  const steps = [
-    ['Escolha o jogo', 'Veja datas, horários e o menor preço disponível de cada partida.'],
-    ['Explore o estádio', 'Gire, aproxime e selecione setores diretamente no modelo 3D.'],
-    ['Veja do seu lugar', 'Entre na perspectiva do setor e confira a visão do gramado.'],
-    ['Escolha os assentos', 'Marque os lugares no mapa, revise o resumo e confirme.'],
-  ];
+function Extras() {
+  const go = useStore((s) => s.go);
   return (
-    <section id="como-funciona" className="section">
-      <div className="wrap">
-        <div className="section-head">
+    <>
+      <section className="band">
+        <div className="wrap band-inner">
           <div>
-            <span className="kicker">Como funciona</span>
-            <h2>Do jogo ao assento em quatro passos</h2>
+            <h2>Sócio paga menos</h2>
+            <p>
+              Até {Math.max(...PLANS.map((p) => p.off)) * 100}% de desconto em um ingresso por pedido, a partir de{' '}
+              {money(Math.min(...PLANS.map((p) => p.price)))} por mês.
+            </p>
           </div>
+          <button className="btn btn-dark btn-lg" onClick={() => go('plans')}>Comparar planos</button>
         </div>
-        <ol className="how">
-          {steps.map(([t, d], i) => (
-            <li key={t}>
-              <span className="how-n">0{i + 1}</span>
-              <h3>{t}</h3>
-              <p>{d}</p>
-            </li>
-          ))}
-        </ol>
-      </div>
-    </section>
-  );
-}
-
-export function Footer() {
-  return (
-    <footer className="site-footer">
-      <div className="wrap footer-inner">
-        <span>© {new Date().getFullYear()} Arena Pass · Projeto demonstrativo de portfólio</span>
-        <span>Clubes, estádio, preços e disponibilidade são fictícios. Nenhuma venda, cadastro ou pagamento é realizado.</span>
-      </div>
-    </footer>
+      </section>
+      <section className="section">
+        <div className="wrap matchday">
+          <h2>Antes de sair de casa</h2>
+          <ul>
+            {[
+              ['Como chegar', 'Trem, ônibus, estacionamento e bicicletário.'],
+              ['Portões e horários', 'Descubra por onde entrar com o seu setor.'],
+              ['O que pode levar', 'Evite perder tempo na revista.'],
+            ].map(([title, text]) => (
+              <li key={title}>
+                <button onClick={() => go('guide')}>
+                  <strong>{title}</strong>
+                  <span>{text}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </section>
+    </>
   );
 }
 
@@ -262,11 +237,10 @@ export default function Home() {
       <Header transparent />
       <main>
         <Hero />
-        <Upcoming />
-        <StadiumSection />
-        <HowItWorks />
+        <Schedule />
+        <Arena />
+        <Extras />
       </main>
-      <Footer />
     </>
   );
 }

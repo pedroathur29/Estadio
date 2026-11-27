@@ -1,15 +1,15 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
-import { FEATURED, MATCH_BY_ID } from './data/matches';
+import { FEATURED, MATCH_BY_ID, sectorStatus } from './data/matches';
 import { SECTOR_BY_ID } from './data/sectors';
-import { replaceUrl, syncHistory, viewFromUrl } from './lib/history';
+import { parseUrl, replaceUrl, syncHistory } from './lib/history';
 
 // 'instant' ignores the CSS `scroll-behavior: smooth`, so a new screen starts at the top at once
 const scrollTop = () => window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
 
 const createStore = (set, get) => ({
-  // navigation: home | stadium | seats | summary | confirm
-  view: viewFromUrl(),
+  // navigation: home | match | stadium | seats | summary | confirm | tickets | guide | plans
+  ...parseUrl(),
   matchId: FEATURED.id,
 
   // stadium explorer
@@ -29,17 +29,34 @@ const createStore = (set, get) => ({
   payment: 'pix',
   order: null,
 
-  go(view) {
+  go(view, pageId = null) {
     // heading to the seat map on purpose starts a new purchase
-    set(view === 'seats' ? { view, order: null } : { view });
+    set(view === 'seats' ? { view, pageId, order: null } : { view, pageId });
     scrollTop();
   },
   redirect(view) {
     replaceUrl(view);
-    set({ view });
+    set({ view, pageId: null });
   },
   openMatch(matchId) {
-    set({ matchId, view: 'stadium', sectorId: null, cameraMode: 'overview', seats: [], ticketTypes: {}, qty: 2, resetTick: get().resetTick + 1 });
+    set({ matchId, view: 'stadium', pageId: null, sectorId: null, cameraMode: 'overview', seats: [], ticketTypes: {}, qty: 2, resetTick: get().resetTick + 1 });
+    scrollTop();
+  },
+  /** Straight to the seat map of one sector, without going through the 3D stadium. */
+  buySector(matchId, sectorId) {
+    const qty = Math.max(1, Math.min(2, sectorStatus(matchId, sectorId).available));
+    set({
+      matchId,
+      sectorId,
+      qty,
+      view: 'seats',
+      pageId: null,
+      seats: [],
+      ticketTypes: {},
+      order: null,
+      cameraMode: 'sector',
+      captureId: get().viewShots[sectorId] ? null : sectorId,
+    });
     scrollTop();
   },
   selectSector(sectorId) {
@@ -104,7 +121,7 @@ const createStore = (set, get) => ({
     scrollTop();
   },
   restart() {
-    set({ view: 'home', sectorId: null, seats: [], ticketTypes: {}, order: null, cameraMode: 'overview' });
+    set({ view: 'home', pageId: null, sectorId: null, seats: [], ticketTypes: {}, order: null, cameraMode: 'overview' });
     scrollTop();
   },
 });
